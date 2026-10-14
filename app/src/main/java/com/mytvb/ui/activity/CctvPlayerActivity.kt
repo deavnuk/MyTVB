@@ -92,9 +92,9 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
         binding.controller.visibility = View.VISIBLE
         binding.buttonBack.touchPressFeedback = true
         binding.buttonBack.setOnClickListener {
-            // 播放UI显示时点击返回按钮 = 收起播放UI（与 BACK 键同一套逻辑）；
-            // 退出播放器需在播放UI隐藏后快速连按两次 BACK
-            hideController()
+            // 返回按钮 = 单击退出直播（对齐普通视频播放器 button_back → onClose → 退出播放页）；
+            // 遥控 BACK 键另走 handleBackKey 三层优先级（浮层 > 播放UI > 双击退出）
+            finish()
         }
         binding.buttonRefresh.setOnClickListener {
             playCurrentChannel(showHint = true)

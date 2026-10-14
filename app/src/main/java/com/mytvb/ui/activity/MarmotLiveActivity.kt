@@ -729,10 +729,11 @@ $scriptTags
     // ==================== 播放UI（顶栏返回+时钟、底部控制栏，呼出/自动隐藏对齐普通视频播放器） =====================
 
     private fun setupPlayerController() {
-        // 返回按钮 = UI 显示时的 BACK 键：单击只收起播放UI，不退出；
-        // 退出播放器需在 UI 隐藏后快速连按两次 BACK。触摸点击带按压缩放反馈
+        // 返回按钮 = 单击退出直播（对齐普通视频播放器 button_back → onClose → 退出播放页）；
+        // 遥控 BACK 键另走 [handleBackKey] 三层优先级（浮层 > 播放UI > 双击退出）。
+        // 触摸点击带按压缩放反馈
         binding.buttonBack.touchPressFeedback = true
-        binding.buttonBack.setOnClickListener { hideController() }
+        binding.buttonBack.setOnClickListener { finish() }
         binding.buttonChannel.setOnClickListener {
             hideController()
             showChannelMenu()

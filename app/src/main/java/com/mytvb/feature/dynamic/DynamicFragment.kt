@@ -815,15 +815,14 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
             binding.recyclerViewRight.post {
                 if (isAdded && view != null && videoAdapter.itemCount > 0) {
                     val focused = activity?.currentFocus
-                    // 功能栏(myTabView)是进入本页的入口，CENTER 选中后焦点天然停留其上，
-                    // 不算"用户已移走焦点"，必须放行引导；仅焦点在搜索框/其它浮层时才让位
-                    val tabBar = activity?.findViewById<View>(R.id.myTabView)
+                    // 焦点已落在页面外（功能栏按钮/搜索框/浮层）时不引导——CENTER 选中
+                    // 功能按钮打开本页后焦点应停留在按钮上（与后续切换表现一致），
+                    // 按右键仍可经 onTabNavigateRight 进内容区；仅无主焦点时才引导进列表
                     if (focused != null &&
                         focused !== binding.recyclerViewRight &&
                         focused !== binding.recyclerViewLeft &&
                         !focused.isDescendantOf(binding.recyclerViewRight) &&
-                        !focused.isDescendantOf(binding.recyclerViewLeft) &&
-                        (tabBar == null || !focused.isDescendantOf(tabBar))
+                        !focused.isDescendantOf(binding.recyclerViewLeft)
                     ) {
                         return@post
                     }

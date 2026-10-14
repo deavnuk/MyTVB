@@ -131,7 +131,7 @@ class LiveSuperChatHostView @JvmOverloads constructor(
         val gap = resources.getDimensionPixelSize(R.dimen.px12)
         val measured = cards.values.firstOrNull()?.height ?: 0
         val cardH = if (measured > 0) measured else
-            resources.getDimensionPixelSize(R.dimen.px56) +
+            resources.getDimensionPixelSize(R.dimen.px72) +
                 resources.getDimensionPixelSize(R.dimen.px8) +
                 resources.getDimensionPixelSize(R.dimen.px14)
         val newMax = ((hostHeight - topSafe - gap) / (cardH + gap)).coerceAtLeast(1)
@@ -229,7 +229,7 @@ class LiveSuperChatHostView @JvmOverloads constructor(
 
         private val bgDrawable: SuperChatBgDrawable
         private val avatarView: com.mytvb.core.ui.image.AvatarBadgeView
-        private val nameText: StrokeTextView
+        private val nameText: ScaledTextView
         private val priceText: ScaledTextView
         private val msgText: StrokeTextView
         private val msgClip: FrameLayout
@@ -252,13 +252,14 @@ class LiveSuperChatHostView @JvmOverloads constructor(
 
             // 头像+头像框：AvatarBadgeView（框环外圈+头像内缩 0.78，对齐官方比例）
             avatarView = AvatarBadgeView(context).apply {
-                layoutParams = LayoutParams(dimen(R.dimen.px56), dimen(R.dimen.px56))
+                layoutParams = LayoutParams(dimen(R.dimen.px72), dimen(R.dimen.px72))
             }
             addView(avatarView)
 
-            nameText = StrokeTextView(context).apply {
+            nameText = ScaledTextView(context).apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_PX, dimen(R.dimen.px22).toFloat())
-                setTextColor(Color.WHITE)
+                // B 站粉（#FB7299），对齐官方用户名用色；深色卡上对比足够，不描边（黑边显脏）
+                setTextColor(0xFFFB7299.toInt())
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
                 includeFontPadding = false

@@ -378,7 +378,7 @@
     <string name="screen_mirror">画面镜像</string>
     <string name="search">搜索</string>
     <string name="search_empty">搜不到东西，换个词试试</string>
-    <string name="user_space_video_count">投稿视频 %1$d</string>
+    <string name="user_space_video_count">投稿视频：%1$d</string>
     <string name="video_detail_pages_title">选集 (%1$d)</string>
     <string name="searchbar_scrolling_view_behavior">com.google.android.material.search.SearchBar$ScrollingViewBehavior</string>
     <string name="searchview_clear_text_content_description">Clear text</string>

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
@@ -52,7 +53,8 @@
         app:layout_constraintStart_toEndOf="@id/image_avatar"
         app:layout_constraintTop_toTopOf="@id/image_avatar" />
 
-    <!-- 名字右侧操作行：等级徽章 + 关注按钮线性排列，徽章 GONE 时自动收起（约束链对 GONE 处理不稳，改容器最稳） -->
+    <!-- 名字右侧操作行：等级徽章 + 关注按钮线性排列，徽章 GONE 时自动收起（约束链对 GONE 处理不稳，改容器最稳）；
+         不约束 end——与 text_title 两元素链贴左排，若再连到统计行会成三元素 spread 链被均匀拉开 -->
     <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/user_action_row"
         android:layout_width="wrap_content"
@@ -83,6 +85,56 @@
             android:text="@string/follow"
             android:textColor="@android:color/white"
             android:textSize="@dimen/px24" />
+    </androidx.appcompat.widget.LinearLayoutCompat>
+
+    <!-- 头部行右端统计（关注数/粉丝数）：与关注按钮同一行，DPAD 左右可达；
+         GONE 时折叠为右端一点，昵称行仍可用近全宽 -->
+    <androidx.appcompat.widget.LinearLayoutCompat
+        android:id="@+id/layout_stat_actions"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/px40"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@id/image_avatar"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/image_avatar">
+
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/tvFollowing"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_user_space_stat_focus"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:minWidth="@dimen/px120"
+            android:paddingStart="@dimen/px8"
+            android:paddingTop="@dimen/px6"
+            android:paddingEnd="@dimen/px8"
+            android:paddingBottom="@dimen/px6"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="@dimen/px22"
+            tools:text="12 关注" />
+
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/tvFollower"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/px28"
+            android:background="@drawable/bg_user_space_stat_focus"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:minWidth="@dimen/px120"
+            android:paddingStart="@dimen/px8"
+            android:paddingTop="@dimen/px6"
+            android:paddingEnd="@dimen/px8"
+            android:paddingBottom="@dimen/px6"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="@dimen/px22"
+            tools:text="34 粉丝" />
     </androidx.appcompat.widget.LinearLayoutCompat>
 
     <androidx.appcompat.widget.AppCompatTextView

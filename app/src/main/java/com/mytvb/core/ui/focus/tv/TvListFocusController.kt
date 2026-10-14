@@ -253,10 +253,22 @@ class TvListFocusController(
             return
         }
 
-        // Don't steal focus if something outside the RecyclerView currently has focus
+        // Don't steal focus if something outside the RecyclerView currently has focus;
+        // likewise for focus inside the RV's non-focusable header area (e.g. filter tabs
+        // hosted as a list header item) — anchor restore must not pull focus off them
         val focused = recyclerView.rootView?.findFocus()
         if (focused != null && !focused.isDescendantOf(recyclerView)) {
             return
+        }
+        if (focused != null) {
+            val focusedChild = generateSequence(focused) { it.parent as? View }
+                .firstOrNull { it.parent === recyclerView }
+            val focusedPosition = focusedChild
+                ?.let { recyclerView.getChildAdapterPosition(it) }
+                ?: RecyclerView.NO_POSITION
+            if (focusedPosition == RecyclerView.NO_POSITION || !adapter.isFocusablePosition(focusedPosition)) {
+                return
+            }
         }
 
         val anchor = currentAnchor ?: capturedAnchor

@@ -5,6 +5,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 
+import androidx.activity.OnBackPressedCallback
+import androidx.annotation.StringRes
 import androidx.core.os.bundleOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -17,7 +19,7 @@ import com.mytvb.databinding.FragmentUserSpaceBinding
 import com.mytvb.event.AppEventHub
 import com.mytvb.model.user.CheckRelationModel
 import com.mytvb.model.user.UserSpaceInfo
-import com.mytvb.model.video.SpaceVideoOrder
+import com.mytvb.model.video.VideoModel
 import com.mytvb.network.session.NetworkSessionGateway
 import com.mytvb.repository.UserRepository
 import com.mytvb.ui.adapter.UserSpaceHeaderAdapter
@@ -64,6 +66,12 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
         private const val TAG = "UserSpace"
         private const val ARG_MID = "mid"
 
+        // 客户端拉全排序（合集/系列最多播放）的翻页上限
+        private const val MAX_SEARCH_PAGES = 10
+
+        // B 站把直播回放投稿归为 UP 主名下自动生成的系列，名字模板"{UP名}的直播回放"
+        private const val LIVE_REPLAY_SERIES_KEYWORD = "直播回放"
+
         fun newInstance(mid: Long): UserSpaceFragment {
             return UserSpaceFragment().apply {
                 arguments = bundleOf(ARG_MID to mid)
@@ -81,9 +89,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
     private lateinit var videoAdapter: VideoAdapter
     private lateinit var concatAdapter: ConcatAdapter
 
-    private var currentPage = 1
     private var isLoading = false
-    private var hasMore = true
     private var relationAttribute = 0
     private var lastFocusedArea = FocusArea.BACK
     private var lastFocusedVideoPosition = RecyclerView.NO_POSITION
@@ -91,8 +97,58 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
     private var tvFocusController: TvListFocusController? = null
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
 
-    // 投稿列表当前排序（接口仅支持 pubdate/click/stow，无按点赞排序）
-    private var currentOrder = SpaceVideoOrder.PubDate
+    /** 列表 tab 类型：投稿视频 / 系列（直播回放同此）/ 合集 —— 与弹窗（OwnerDetailDialog）同款 */
+    private enum class TabKind { VIDEO, SERIES, SEASON }
+
+    /**
+     * 全局排序（弹窗同款四项）：
+     * 最新发布=视频 pubdate+合集系列最新在前；最早发布=合集系列正序、投稿流末页倒翻（接口无正序）；
+     * 最多播放=视频 click，合集系列接口不支持→客户端拉全按 stat.view 排；最多收藏仅视频支持。
+     */
+    private enum class OwnerListOrder(@StringRes val labelRes: Int) {
+        NEWEST(R.string.model_search_order_pub_date),
+        MOST_VIEWED(R.string.space_order_most_played),
+        MOST_FAVORITE(R.string.model_search_order_most_collection),
+        OLDEST(R.string.space_sort_oldest_first)
+    }
+
+    /** 每个 tab 独立的列表状态：切 tab 铺回已加载数据（不恢复滚动位置，列表回顶）。 */
+    private inner class TabState(
+        val kind: TabKind,
+        val title: String,
+        val seriesId: Long = 0L,
+        val seasonId: Long = 0L
+    ) {
+        var items: MutableList<VideoModel> = mutableListOf()
+        var page: Int = 1
+        var hasMore: Boolean = true
+        var loading: Boolean = false
+        var loadedFirstPage: Boolean = false
+        // 投稿 tab「最早发布」倒翻模式缓存的总投稿数
+        var totalCount: Int = 0
+    }
+
+    private val tabStates = mutableListOf<TabState>()
+    private val videoTabState: TabState get() = tabStates[0]
+    private var currentIndex = 0
+    private var order = OwnerListOrder.NEWEST
+
+    // 刷新代际：切排序/tab 时作废在飞请求与过期响应，防止旧回调把数据写进新列表或吞掉新请求
+    private var loadGeneration = 0
+
+    private fun activeState(): TabState = tabStates.getOrNull(currentIndex) ?: videoTabState
+
+    private fun needsClientSideSort(state: TabState): Boolean =
+        state.kind != TabKind.VIDEO && order == OwnerListOrder.MOST_VIEWED
+
+    private fun oldestMode(state: TabState): Boolean =
+        state.kind == TabKind.VIDEO && order == OwnerListOrder.OLDEST
+
+    /** 触底翻页方向：倒翻模式页码递减，其余递增。 */
+    private fun advancePage() {
+        val state = activeState()
+        if (oldestMode(state)) state.page-- else state.page++
+    }
 
     override fun onResume() {
         super.onResume()
@@ -123,7 +179,8 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
             onMoveToContent = {
                 requestContentFocus(lastFocusedVideoPosition)
             },
-            onOrderClick = ::showOrderDialog
+            onOrderClick = ::showOrderDialog,
+            onTabSelected = { index -> performSwitch(index) }
         )
         videoAdapter = VideoAdapter(
             onTopEdgeUp = ::focusHeaderFromContent,
@@ -176,9 +233,9 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
                 super.onScrolled(recyclerView, dx, dy)
                 val gridLayoutManager = recyclerView.layoutManager as? WrapContentGridLayoutManager ?: return
                 val lastVisibleItem = gridLayoutManager.findLastVisibleItemPosition()
-                if (!isLoading && hasMore && lastVisibleItem >= concatAdapter.itemCount - 6) {
-                    currentPage++
-                    loadUserVideos()
+                if (!isLoading && activeState().hasMore && lastVisibleItem >= concatAdapter.itemCount - 6) {
+                    advancePage()
+                    loadTabPage(activeState())
                 }
             }
         })
@@ -219,13 +276,108 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
                 lastFocusedArea = FocusArea.BACK
             }
         }
+
+        // BACK 两层：焦点不在列表 tab 上时先回 tab；已在 tab 上才退出页面
+        // （Fragment 的 lifecycle callback 晚于 Activity 兜底注册，优先拦截）
+        requireActivity().onBackPressedDispatcher.addCallback(
+            viewLifecycleOwner,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (headerAdapter.isTabsFocused()) {
+                        parentFragmentManager.popBackStack()
+                    } else {
+                        focusTabsForBackExit(retries = 6)
+                    }
+                }
+            }
+        )
     }
 
     override fun initData() {
+        tabStates.add(TabState(TabKind.VIDEO, getString(R.string.video)))
+        headerAdapter.submitTabs(listOf(videoTabState.title))
         loadUserInfo()
         loadUserStat()
-        loadUserVideos()
+        loadTabPage(videoTabState)
+        loadCollectionTabs()
         requestHeaderFocus(FocusArea.BACK)
+    }
+
+    /**
+     * 探测 UP 主的系列与合集（x/polymer/web-space/home/seasons_series），
+     * 每个系列/合集各建一个 tab：直播回放自动系列排最前，其后系列与合集（弹窗同款）。
+     */
+    private fun loadCollectionTabs() {
+        if (mid == 0L) return
+        lifecycleScope.launch {
+            userRepository.getSeasonsSeriesList(mid)
+                .onSuccess { response ->
+                    val data = response.data ?: return@onSuccess
+                    val seriesList = data.series.orEmpty()
+                    val seasonsList = data.seasons.orEmpty()
+                    val replay = seriesList.firstOrNull {
+                        it.seriesId > 0 && it.name.contains(LIVE_REPLAY_SERIES_KEYWORD)
+                    }
+                    val newTitles = mutableListOf<String>()
+                    if (replay != null && replay.seriesId > 0) {
+                        tabStates.add(TabState(TabKind.SERIES, replay.name, seriesId = replay.seriesId))
+                        newTitles.add(replay.name)
+                    }
+                    seriesList.forEach { item ->
+                        if (item.seriesId > 0 && item !== replay) {
+                            tabStates.add(TabState(TabKind.SERIES, item.name, seriesId = item.seriesId))
+                            newTitles.add(item.name)
+                        }
+                    }
+                    seasonsList.forEach { item ->
+                        if (item.seasonId > 0) {
+                            tabStates.add(TabState(TabKind.SEASON, item.name, seasonId = item.seasonId))
+                            newTitles.add(item.name)
+                        }
+                    }
+                    if (newTitles.isNotEmpty()) {
+                        headerAdapter.submitTabs(tabStates.map { it.title })
+                    }
+                }
+                .onFailure {
+                    AppLog.w("UserSpace", "collections probe failed: ${it.message}")
+                }
+        }
+    }
+
+    /** 用户点 tab 切换：焦点留在 tab 上、列表铺回已加载数据并回顶（DOWN 落新列表第一个）。 */
+    private fun performSwitch(index: Int) {
+        if (index == currentIndex || index < 0 || index >= tabStates.size) return
+        currentIndex = index
+        headerAdapter.selectTab(index)
+        // 焦点口径切到筛选区：丢弃旧 tab 的卡片焦点缓存（DOWN 进列表落第一个），
+        // 并阻止首屏加载完成回调把焦点拉进列表
+        lastFocusedVideoPosition = RecyclerView.NO_POSITION
+        lastFocusedArea = FocusArea.FILTER
+        val state = activeState()
+        videoAdapter.setShowLoadMore(state.hasMore)
+        videoAdapter.setData(state.items) {
+            tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+        }
+        binding.recyclerViewVideos.scrollToPosition(0)
+        updateEmptyState()
+        maybeLoadActiveTabFirstPage()
+    }
+
+    /** 空 tab 提示：当前 tab 首屏加载完成且无内容时显示（加载中/失败/客户端排序拉全中/有内容都隐藏）。 */
+    private fun updateEmptyState() {
+        val state = activeState()
+        binding.tvEmpty.visibility = if (
+            state.loadedFirstPage && state.items.isEmpty() &&
+            !(needsClientSideSort(state) && state.hasMore)
+        ) View.VISIBLE else View.GONE
+    }
+
+    /** 当前 tab 首屏还没加载就补发。 */
+    private fun maybeLoadActiveTabFirstPage() {
+        val state = activeState()
+        if (state.loading || !state.hasMore || state.loadedFirstPage || state.items.isNotEmpty()) return
+        loadTabPage(state)
     }
 
     override fun initObserver() {
@@ -235,7 +387,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
                     if (event == AppEventHub.Event.UserSessionChanged && !isHidden) {
                         loadUserInfo()
                         loadUserStat()
-                        refreshUserVideos()
+                        resetAllTabsForOrderChange(scrollToTop = false)
                     }
                 }
             }
@@ -269,58 +421,145 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
         }
     }
 
-    private fun loadUserVideos() {
-        if (mid == 0L || isLoading || !hasMore) return
+    /** 一页数据的解析结果（含翻页判定与投稿总数）。 */
+    private data class TabPage(
+        val videos: List<VideoModel>,
+        val hasMore: Boolean,
+        val totalCount: Int = 0
+    )
 
+    private suspend fun fetchTabPage(state: TabState, page: Int): TabPage =
+        when (state.kind) {
+            TabKind.VIDEO -> {
+                // 「最早发布」：投稿接口无正序参数，跳末页倒着翻（页内反转在回调处理）
+                if (oldestMode(state)) {
+                    if (state.totalCount <= 0) {
+                        runCatching {
+                            userRepository.getUserDynamic(mid, 1, 20).getOrThrow().data
+                        }.getOrNull()?.let { state.totalCount = it.totalCount }
+                    }
+                    val maxPage = ((state.totalCount + 19) / 20).coerceAtLeast(1)
+                    val pn = if (page <= 1) maxPage else page.coerceAtMost(maxPage)
+                    state.page = pn
+                    AppLog.d("UserSpace", "fetch oldest pn=$pn total=${state.totalCount}")
+                    val data = userRepository.getUserDynamic(mid, pn, 20).getOrThrow().data
+                    TabPage(data?.archives.orEmpty(), pn > 1, data?.totalCount ?: 0)
+                } else {
+                    val orderValue = when (order) {
+                        OwnerListOrder.MOST_VIEWED -> "click"
+                        OwnerListOrder.MOST_FAVORITE -> "stow"
+                        else -> "pubdate"
+                    }
+                    AppLog.d("UserSpace", "fetch video pn=$page order=$orderValue")
+                    val data = userRepository.getUserDynamic(mid, page, 20, orderValue).getOrThrow().data
+                    TabPage(data?.archives.orEmpty(), data?.hasMore ?: false, data?.totalCount ?: 0)
+                }
+            }
+            TabKind.SERIES -> {
+                val data = userRepository.getSeriesArchives(
+                    mid, seriesId = state.seriesId, page = page, pageSize = 20,
+                    sortDesc = order != OwnerListOrder.OLDEST
+                ).getOrThrow().data ?: error("empty data")
+                AppLog.d(TAG, "fetch series pn=$page seriesId=${state.seriesId} archives=${data.archives.size}")
+                TabPage(data.archives, data.hasMore)
+            }
+            TabKind.SEASON -> {
+                // seasons_archives_list 的 page 只带 total（无 has_more），按满页判定翻页
+                val data = userRepository.getSeasonArchives(
+                    mid, seasonId = state.seasonId, page = page, pageSize = 20,
+                    sortDesc = order != OwnerListOrder.OLDEST
+                ).getOrThrow().data
+                val videos = data?.archives.orEmpty()
+                TabPage(videos, videos.size >= 20)
+            }
+        }
+
+    private fun loadTabPage(state: TabState, force: Boolean = false) {
+        if (mid == 0L || !isAdded) return
+        if (force) {
+            // 刷新作废在飞请求：代际 +1，旧回调回来直接丢弃（否则会吞掉本次刷新或污染新列表）
+            loadGeneration++
+            isLoading = false
+            state.loading = false
+        } else if (state.loading || !state.hasMore) return
+
+        val pageToLoad = state.page
+        state.loading = true
         isLoading = true
         binding.progressBar.visibility = View.VISIBLE
+        val gen = loadGeneration
 
         lifecycleScope.launch {
-            val result = userRepository.getUserDynamic(
-                mid, currentPage, 20,
-                order = currentOrder.orderValue
-            )
-
-            result.onSuccess { response ->
+            val result = runCatching { fetchTabPage(state, pageToLoad) }
+            val stillCurrent = tabStates.indexOf(state) == currentIndex
+            result.onSuccess { pageData ->
+                if (gen != loadGeneration) return@onSuccess
                 binding.progressBar.visibility = View.GONE
                 swipeRefreshLayout?.isRefreshing = false
                 isLoading = false
+                state.loading = false
 
-                if (response.isSuccess) {
-                    response.data?.let { page ->
-                        val items = ContentFilter.filterVideos(requireContext(), page.archives)
-                        hasMore = page.hasMore
-                        if (currentPage == 1) {
-                            // 先同步 footer 显隐：没有更多时不插“正在加载..”，避免永远转圈
-                            videoAdapter.setShowLoadMore(hasMore)
-                            videoAdapter.setData(items)
-                            tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
-                        } else {
-                            videoAdapter.addData(items)
-                            videoAdapter.setShowLoadMore(hasMore)
-                            tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
-                        }
-                        headerAdapter.updateVideoCount(page.totalCount)
-                        headerAdapter.updateOrderLabel(currentOrder.nameRes)
-                        if (!hasRequestedInitialFocus && currentPage == 1) {
-                            hasRequestedInitialFocus = true
-                            requestHeaderFocus(FocusArea.BACK)
-                        } else if (lastFocusedArea == FocusArea.CONTENT) {
-                            requestContentFocus(lastFocusedVideoPosition)
-                        } else {
-                            Unit
-                        }
+                val videos = ContentFilter.filterVideos(requireContext(), pageData.videos)
+                    .let { if (oldestMode(state)) it.reversed() else it }
+                state.hasMore = pageData.hasMore
+                val isFirstBatch = pageToLoad == 1 || state.items.isEmpty()
+                if (isFirstBatch) {
+                    state.loadedFirstPage = true
+                    state.items = videos.toMutableList()
+                } else {
+                    state.items.addAll(videos)
+                }
+                if (state.kind == TabKind.VIDEO && pageData.totalCount > 0) {
+                    headerAdapter.updateVideoCount(pageData.totalCount)
+                }
+                headerAdapter.updateOrderLabel(order.labelRes)
+                // 合集/系列 + 最多播放：接口不支持播放排序，翻页拉全后客户端按 stat.view 排序
+                if (needsClientSideSort(state)) {
+                    if (state.hasMore && state.page < MAX_SEARCH_PAGES) {
+                        state.page++
+                        loadTabPage(state)
+                        return@onSuccess
+                    }
+                    val sorted = state.items.sortedByDescending { it.stat?.view ?: it.play }
+                    state.items = sorted.toMutableList()
+                    state.hasMore = false
+                if (stillCurrent) {
+                    videoAdapter.setData(state.items) {
+                        tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                    }
+                    videoAdapter.setShowLoadMore(false)
+                    updateEmptyState()
+                }
+                return@onSuccess
+            }
+            if (stillCurrent) {
+                if (isFirstBatch) {
+                    videoAdapter.setShowLoadMore(state.hasMore)
+                    videoAdapter.setData(state.items) {
+                        tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
                     }
                 } else {
-                    rollbackPage()
-                    AppToast.show(requireContext(), response.message)
+                    videoAdapter.addData(videos)
+                    videoAdapter.setShowLoadMore(state.hasMore)
+                    tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                 }
+                updateEmptyState()
+                if (!hasRequestedInitialFocus && pageToLoad == 1) {
+                    hasRequestedInitialFocus = true
+                    requestHeaderFocus(FocusArea.BACK)
+                } else if (lastFocusedArea == FocusArea.CONTENT) {
+                    requestContentFocus(lastFocusedVideoPosition)
+                }
+            }
             }.onFailure { e ->
+                if (gen != loadGeneration) return@onFailure
                 binding.progressBar.visibility = View.GONE
                 swipeRefreshLayout?.isRefreshing = false
                 isLoading = false
-                rollbackPage()
+                state.loading = false
+                rollbackPage(state)
                 AppToast.show(requireContext(), getString(R.string.load_failed_format, e.message))
+                maybeLoadActiveTabFirstPage()
             }
         }
     }
@@ -366,31 +605,40 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
         }
     }
 
-    private fun refreshUserVideos(scrollToTop: Boolean = false) {
-        currentPage = 1
-        hasMore = true
+    /** 全局排序变化/整页刷新：重置所有 tab 的列表状态，当前 tab 立即重载，其余切入时补发首屏。 */
+    private fun resetAllTabsForOrderChange(scrollToTop: Boolean) {
         lastFocusedVideoPosition = RecyclerView.NO_POSITION
+        tabStates.forEach { s ->
+            s.items.clear()
+            s.page = 1
+            s.hasMore = true
+            s.loadedFirstPage = false
+            s.totalCount = 0
+        }
+        // 清空旧列表：倒翻首批页码非 1，首批判定依赖列表已清空（否则末页数据被追加到旧列表尾部）
+        videoAdapter.setData(emptyList())
         tvFocusController?.clearAnchorForUserRefresh()
+        updateEmptyState()
         if (scrollToTop) {
             binding.recyclerViewVideos.scrollToPosition(0)
         }
-        loadUserVideos()
+        loadTabPage(activeState(), force = true)
     }
 
     private fun showOrderDialog() {
-        val orders = SpaceVideoOrder.values()
-        val labels = orders.map { getString(it.nameRes) }
+        val orders = OwnerListOrder.values()
+        val labels = orders.map { getString(it.labelRes) }
         ChoiceDialog.show(
             context = requireContext(),
             title = getString(R.string.video_order),
             options = labels,
-            selectedIndex = orders.indexOf(currentOrder).coerceAtLeast(0)
+            selectedIndex = orders.indexOf(order)
         ) { which ->
             val newOrder = orders[which]
-            if (newOrder != currentOrder) {
-                currentOrder = newOrder
-                headerAdapter.updateOrderLabel(newOrder.nameRes)
-                refreshUserVideos(scrollToTop = true)
+            if (newOrder != order) {
+                order = newOrder
+                headerAdapter.updateOrderLabel(newOrder.labelRes)
+                resetAllTabsForOrderChange(scrollToTop = true)
             }
         }
         activity?.let { ViewUtils.hideSystemBars(it) }
@@ -399,12 +647,15 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
     private fun refreshUserSpace() {
         loadUserInfo()
         loadUserStat()
-        refreshUserVideos()
+        resetAllTabsForOrderChange(scrollToTop = false)
     }
 
-    private fun rollbackPage() {
-        if (currentPage > 1) {
-            currentPage--
+    private fun rollbackPage(state: TabState) {
+        // 请求失败回滚页码（与 advancePage 反向）
+        if (oldestMode(state)) {
+            state.page++
+        } else if (state.page > 1) {
+            state.page--
         }
     }
 
@@ -487,6 +738,11 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
     }
 
     private fun focusHeaderFromContent(): Boolean {
+        // 上行纵向链与 tab 一致：列表顶行 → 投稿行排序按钮 → 头部行 → 返回键，
+        // 不从列表直接跳头部行（会跳过投稿行导致焦点链断层）
+        if (requestHeaderFocus(FocusArea.FILTER, retries = 6, fallbackToBack = false)) {
+            return true
+        }
         val orderedAreas = buildList {
             if (headerAdapter.hasVisibleFollowAction()) {
                 add(FocusArea.FOLLOW)
@@ -500,6 +756,32 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
             }
         }
         return binding.buttonBack.requestFocus()
+    }
+
+    /** BACK 落点：回列表 tab；header 被滚出屏时滚顶后重试，重试耗尽才退出页面。 */
+    private fun focusTabsForBackExit(retries: Int) {
+        if (!isAdded || rootView == null) return
+        if (headerAdapter.focusSelectedTab()) {
+            AppLog.d(TAG, "backToTabs: focused, retries left=$retries")
+            lastFocusedArea = FocusArea.FILTER
+            // 刚滚回顶的 RV 布局还在稳定期，tab 焦点可能被后续布局抖掉，落位后再校验拉回；
+            // 同时补滚到 0 让头部完整露出（requestChildFocus 只保证焦点可见即止）
+            binding.recyclerViewVideos.post {
+                if (isAdded && !headerAdapter.isTabsFocused()) {
+                    AppLog.d(TAG, "backToTabs: focus lost after settle, re-request")
+                    binding.recyclerViewVideos.scrollToPosition(0)
+                    headerAdapter.focusSelectedTab()
+                }
+            }
+            return
+        }
+        AppLog.d(TAG, "backToTabs: retry (retries=$retries rvFocus=${binding.recyclerViewVideos.hasFocus()})")
+        if (retries > 0) {
+            binding.recyclerViewVideos.scrollToPosition(0)
+            binding.recyclerViewVideos.post { focusTabsForBackExit(retries - 1) }
+            return
+        }
+        parentFragmentManager.popBackStack()
     }
 
     private fun restoreFocus() {
@@ -592,11 +874,11 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
             recyclerView = binding.recyclerViewVideos,
             adapter = OffsetTvFocusableAdapter(videoAdapter) { headerAdapter.itemCount },
             strategy = GridTvFocusStrategy { spanCount },
-            canLoadMore = { hasMore },
+            canLoadMore = { activeState().hasMore },
             loadMore = {
-                if (!isLoading && hasMore) {
-                    currentPage++
-                    loadUserVideos()
+                if (!isLoading && activeState().hasMore) {
+                    advancePage()
+                    loadTabPage(activeState())
                 }
             }
         )

@@ -189,8 +189,11 @@ fun TabLayout.enableDirectTabNavigation(
     onEdgeLeft: (() -> Boolean)? = null,
     onEdgeRight: (() -> Boolean)? = null
 ) {
-    post {
-        val tabStrip = getChildAt(0) as? ViewGroup ?: return@post
+    // 立即同步装一遍再 post 补装（幂等）：只 post 的话 addTab 到下一帧之间存在窗口期，
+    // 此间按方向键会被 FocusFinder 几何搜索把焦点送到不可预期的位置
+    fun installToTabStrip() {
+        val tabStrip = getChildAt(0) as? ViewGroup ?: return
+        if (tabStrip.childCount == 0) return
         for (index in 0 until tabStrip.childCount) {
             val tabView = tabStrip.getChildAt(index)
             tabView.isClickable = true
@@ -219,6 +222,8 @@ fun TabLayout.enableDirectTabNavigation(
         }
         reapplyTextColorOnSelectionChange()
     }
+    installToTabStrip()
+    post { installToTabStrip() }
 }
 
 fun TabLayout.focusSelectedTab(): Boolean {

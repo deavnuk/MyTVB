@@ -557,6 +557,7 @@ class OwnerDetailDialog(
                             tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
                         }
                         videoAdapter.setShowLoadMore(false)
+                        updateEmptyState()
                     }
                     return@onSuccess
                 }
@@ -574,6 +575,7 @@ class OwnerDetailDialog(
                 }
                 if (stillCurrent) {
                     videoAdapter.setShowLoadMore(state.hasMore)
+                    updateEmptyState()
                 }
                 handleSearchProgress(state, pageToLoad, stillCurrent)
                 // 当前页渲染成功后，立即在后台预取下一页，把网络往返藏进用户浏览过程。
@@ -806,7 +808,17 @@ class OwnerDetailDialog(
             // 用户手动 OK 切换：只恢复离开时的滚动位置，焦点留在 tab 栏不抢
             binding.recyclerView.scrollToPosition(state.scrollPos)
         }
+        updateEmptyState()
         maybeLoadActiveTabFirstPage()
+    }
+
+    /** 空 tab 提示：当前 tab 首屏加载完成且无内容时显示（加载中/失败/客户端排序拉全中/有内容都隐藏）。 */
+    private fun updateEmptyState() {
+        val state = activeState()
+        binding.tvEmpty.visibility = if (
+            state.loadedFirstPage && state.items.isEmpty() &&
+            !(needsClientSideSort(state) && state.hasMore)
+        ) View.VISIBLE else View.GONE
     }
 
     /** 当前 tab 首屏还没加载就补发（切 tab 时若该 tab 请求在飞，state.loading 会挡住，回调里兜底）。 */
@@ -878,6 +890,7 @@ class OwnerDetailDialog(
         videoAdapter.setData(emptyList())
         videoAdapter.setShowLoadMore(true)
         binding.recyclerView.scrollToPosition(0)
+        updateEmptyState()
         loadTabPage(activeState())
     }
 

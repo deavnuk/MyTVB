@@ -247,7 +247,7 @@
     <string name="screen_mirror">Screen mirror</string>
     <string name="search">Search</string>
     <string name="search_empty">Nothing found. Try another keyword.</string>
-    <string name="user_space_video_count">%1$d videos</string>
+    <string name="user_space_video_count">Videos: %1$d</string>
     <string name="video_detail_pages_title">Episodes (%1$d)</string>
     <string name="series">TV dramas</string>
     <string name="series_already_open">The selected item is already open on this page</string>

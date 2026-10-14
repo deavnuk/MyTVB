@@ -248,7 +248,7 @@
     <string name="screen_mirror">畫面鏡像</string>
     <string name="search">搜尋</string>
     <string name="search_empty">搜不到東西，換個關鍵字試試</string>
-    <string name="user_space_video_count">投稿影片 %1$d</string>
+    <string name="user_space_video_count">投稿影片：%1$d</string>
     <string name="video_detail_pages_title">選集 (%1$d)</string>
     <string name="series">電視劇</string>
     <string name="series_already_open">選中的內容和目前頁面是同一個</string>

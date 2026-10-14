@@ -7,6 +7,9 @@ import android.view.ViewGroup
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.tabs.TabLayout
+import com.mytvb.core.ui.tab.enableDirectTabNavigation
+import com.mytvb.core.ui.tab.focusSelectedTab
 import com.mytvb.core.ui.user.UserBadgeText
 import com.mytvb.R
 import com.mytvb.databinding.CellUserSpaceHeaderBinding
@@ -20,7 +23,8 @@ class UserSpaceHeaderAdapter(
     private val onFollowerClick: () -> Unit,
     private val onHeaderFocusChanged: (FocusTarget) -> Unit,
     private val onMoveToContent: () -> Boolean,
-    private val onOrderClick: () -> Unit
+    private val onOrderClick: () -> Unit,
+    private val onTabSelected: (index: Int) -> Unit
 ) : RecyclerView.Adapter<UserSpaceHeaderAdapter.HeaderViewHolder>() {
 
     enum class FocusTarget {
@@ -40,13 +44,19 @@ class UserSpaceHeaderAdapter(
         @DrawableRes val followBackgroundRes: Int = R.drawable.bg_follow_space_btn,
         @DrawableRes val followIconRes: Int = R.drawable.ic_plus,
         val followDimmed: Boolean = false,
-        // 投稿排序按钮（「投稿视频 N」行右端），列表首屏加载后显示
+        // 投稿排序按钮（头部关注按钮左边），列表首屏加载后显示
         @StringRes val orderLabelRes: Int = R.string.model_search_order_pub_date,
-        val showOrderButton: Boolean = false
+        val showOrderButton: Boolean = false,
+        // 列表 tab 标题（视频/直播回放/系列/合集，弹窗同款）
+        val tabTitles: List<String> = emptyList(),
+        val selectedTabIndex: Int = 0
     )
 
     companion object {
         const val VIEW_TYPE_HEADER = 1001
+        // payload 局部刷新标记：DefaultItemAnimator 对带 payload 的 change 原位复用 holder，
+        // 不做 cross-fade 新建 itemView——否则切 tab 时 tab 焦点随旧 itemView detach 丢失
+        const val STATE_PAYLOAD = "header_state"
         val FOLLOW_DIM_COLOR = android.graphics.Color.argb(0xB3, 0xFF, 0xFF, 0xFF)
     }
 
@@ -77,6 +87,13 @@ class UserSpaceHeaderAdapter(
         attachedHolder = holder
     }
 
+    override fun onViewAttachedToWindow(holder: HeaderViewHolder) {
+        // 列表滚回顶时 header 常从一级缓存复用直接 attach（不重跑 onBindViewHolder），
+        // 不在这里恢复 attachedHolder 的话，滚出屏后程序的头部聚焦请求会永远落空
+        attachedHolder = holder
+        super.onViewAttachedToWindow(holder)
+    }
+
     override fun onViewDetachedFromWindow(holder: HeaderViewHolder) {
         if (attachedHolder === holder) {
             attachedHolder = null
@@ -86,7 +103,7 @@ class UserSpaceHeaderAdapter(
 
     fun submitState(newState: HeaderState) {
         state = newState
-        notifyItemChanged(0)
+        notifyItemChanged(0, STATE_PAYLOAD)
     }
 
     fun updateUserInfo(info: UserSpaceInfo?, showFollow: Boolean) {
@@ -116,8 +133,28 @@ class UserSpaceHeaderAdapter(
         submitState(state.copy(orderLabelRes = labelRes, showOrderButton = true))
     }
 
-    fun isFilterBarFocused(): Boolean {
+    /** 建列表 tab（视频/直播回放/系列/合集，弹窗同款结构）。 */
+    fun submitTabs(titles: List<String>) {
+        submitState(state.copy(tabTitles = titles))
+    }
+
+    /** 同步 tab 选中态（用户点 tab 时 UI 已切换，这里只刷 state 供重绑恢复）。 */
+    fun selectTab(index: Int) {
+        submitState(state.copy(selectedTabIndex = index))
+    }
+
+    fun isOrderButtonFocused(): Boolean {
         return attachedHolder?.isOrderButtonFocused() ?: false
+    }
+
+    /** 焦点是否在列表 tab 上（含 tab 子 view）。 */
+    fun isTabsFocused(): Boolean {
+        return attachedHolder?.isTabsFocused() ?: false
+    }
+
+    /** 聚焦当前选中的列表 tab；header 未挂载或 tab 未显示时返回 false。 */
+    fun focusSelectedTab(): Boolean {
+        return attachedHolder?.focusSelectedTab() ?: false
     }
 
     fun updateFollowState(
@@ -149,14 +186,19 @@ class UserSpaceHeaderAdapter(
         private val binding: CellUserSpaceHeaderBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
+        // tab 重建/程序 select 期间屏蔽 OnTabSelectedListener 的业务回调，防止 select 循环
+        private var isBindingTabs = false
+        private var boundTabTitles: List<String>? = null
+        private var boundSelectedTabIndex = 0
+
         init {
             binding.userSpaceTop.buttonFollow.setOnClickListener {
                 onFollowClick()
             }
-            binding.tvFollowing.setOnClickListener {
+            binding.userSpaceTop.tvFollowing.setOnClickListener {
                 onFollowingClick()
             }
-            binding.tvFollower.setOnClickListener {
+            binding.userSpaceTop.tvFollower.setOnClickListener {
                 onFollowerClick()
             }
             binding.userSpaceTop.buttonFollow.setOnFocusChangeListener { _, hasFocus ->
@@ -164,25 +206,29 @@ class UserSpaceHeaderAdapter(
                     onHeaderFocusChanged(FocusTarget.FOLLOW)
                 }
             }
-            binding.tvFollowing.setOnFocusChangeListener { _, hasFocus ->
+            binding.userSpaceTop.tvFollowing.setOnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
                     onHeaderFocusChanged(FocusTarget.FOLLOWING)
                 }
             }
-            binding.tvFollower.setOnFocusChangeListener { _, hasFocus ->
+            binding.userSpaceTop.tvFollower.setOnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
                     onHeaderFocusChanged(FocusTarget.FOLLOWER)
                 }
             }
             val contentExitListener = View.OnKeyListener { _, keyCode, event ->
                 if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    // 头部行 DOWN：先落投稿行排序按钮，按钮未显示才直进列表
+                    if (state.showOrderButton && binding.buttonOrder.isShown) {
+                        return@OnKeyListener binding.buttonOrder.requestFocus()
+                    }
                     return@OnKeyListener onMoveToContent()
                 }
                 false
             }
             binding.userSpaceTop.buttonFollow.setOnKeyListener(contentExitListener)
-            binding.tvFollowing.setOnKeyListener(contentExitListener)
-            binding.tvFollower.setOnKeyListener(contentExitListener)
+            binding.userSpaceTop.tvFollowing.setOnKeyListener(contentExitListener)
+            binding.userSpaceTop.tvFollower.setOnKeyListener(contentExitListener)
 
             binding.buttonOrder.setOnClickListener {
                 onOrderClick()
@@ -197,11 +243,23 @@ class UserSpaceHeaderAdapter(
                     return@setOnKeyListener false
                 }
                 when (keyCode) {
-                    KeyEvent.KEYCODE_DPAD_DOWN -> onMoveToContent()
+                    // 投稿行（tab 栏上方）：下进 tab 栏、上到关注/粉丝行
+                    KeyEvent.KEYCODE_DPAD_DOWN -> binding.tabFilter.focusSelectedTab()
                     KeyEvent.KEYCODE_DPAD_UP -> focusHeaderStatRow()
                     else -> false
                 }
             }
+            // 注册一次（bind 重建 tab 时不重复注册）
+            binding.tabFilter.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+                override fun onTabSelected(tab: TabLayout.Tab) {
+                    if (isBindingTabs) return
+                    onTabSelected(tab.position)
+                }
+
+                override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+
+                override fun onTabReselected(tab: TabLayout.Tab) = Unit
+            })
         }
 
         fun bind(state: HeaderState) {
@@ -221,14 +279,14 @@ class UserSpaceHeaderAdapter(
             binding.userSpaceTop.buttonFollow.setText(state.followLabelRes)
             binding.userSpaceTop.buttonFollow.setBackgroundResource(state.followBackgroundRes)
             bindFollowIcon(state.followIconRes, state.followDimmed)
-            binding.layoutStatActions.visibility =
+            binding.userSpaceTop.layoutStatActions.visibility =
                 if (state.followingCount != null && state.followerCount != null) View.VISIBLE else View.GONE
-            binding.tvFollowing.text = buildString {
+            binding.userSpaceTop.tvFollowing.text = buildString {
                 append(NumberUtils.formatCount(binding.root.context, (state.followingCount ?: 0).toLong()))
                 append("\n")
                 append(binding.root.context.getString(R.string.user_following))
             }
-            binding.tvFollower.text = buildString {
+            binding.userSpaceTop.tvFollower.text = buildString {
                 append(NumberUtils.formatCount(binding.root.context, (state.followerCount ?: 0).toLong()))
                 append("\n")
                 append(binding.root.context.getString(R.string.user_follower))
@@ -240,6 +298,8 @@ class UserSpaceHeaderAdapter(
 
             binding.buttonOrder.visibility = if (state.showOrderButton) View.VISIBLE else View.GONE
             binding.textOrder.setText(state.orderLabelRes)
+
+            bindListTabs(state)
 
             val faceUrl = state.userInfo?.face
             if (faceUrl.isNullOrBlank()) {
@@ -281,15 +341,72 @@ class UserSpaceHeaderAdapter(
             }
             val view = when (target) {
                 FocusTarget.FOLLOW -> binding.userSpaceTop.buttonFollow.takeIf { it.isShown }
-                FocusTarget.FOLLOWING -> binding.tvFollowing.takeIf { it.isShown }
-                FocusTarget.FOLLOWER -> binding.tvFollower.takeIf { it.isShown }
+                FocusTarget.FOLLOWING -> binding.userSpaceTop.tvFollowing.takeIf { it.isShown }
+                FocusTarget.FOLLOWER -> binding.userSpaceTop.tvFollower.takeIf { it.isShown }
                 else -> null
             } ?: return false
             return view.requestFocus()
         }
 
+        fun isTabsFocused(): Boolean {
+            return binding.tabFilter.hasFocus()
+        }
+
+        fun focusSelectedTab(): Boolean {
+            if (binding.tabFilter.visibility != View.VISIBLE) return false
+            return binding.tabFilter.focusSelectedTab()
+        }
+
         fun isOrderButtonFocused(): Boolean {
             return binding.buttonOrder.hasFocus()
+        }
+
+        /**
+         * 列表 tab 绑定（视频/直播回放/系列/合集，弹窗同款）：
+         * 标题列表变化才重建（重建会清 tab 焦点），仅选中变化时切 select。
+         */
+        private fun bindListTabs(state: HeaderState) {
+            val tabLayout = binding.tabFilter
+            tabLayout.visibility = if (state.tabTitles.isEmpty()) View.GONE else View.VISIBLE
+            if (state.tabTitles.isEmpty()) return
+            if (state.tabTitles != boundTabTitles) {
+                isBindingTabs = true
+                tabLayout.removeAllTabs()
+                state.tabTitles.forEach { title ->
+                    tabLayout.addTab(tabLayout.newTab().setText(title))
+                }
+                tabLayout.enableDirectTabNavigation(
+                    onNavigateDown = { onMoveToContent() },
+                    // tab 上行到投稿行排序按钮（未显示时退头部行）。
+                    // 注意读 adapter 实时 state（this@...），不能用本方法的 state 参数——
+                    // tab 只在标题变化时重建重装本监听，捕获当次 bind 的参数快照会拿到
+                    // 首屏加载前的旧值（showOrderButton 竞态）
+                    onNavigateUp = {
+                        if (this@UserSpaceHeaderAdapter.state.showOrderButton &&
+                            binding.buttonOrder.isShown
+                        ) {
+                            binding.buttonOrder.requestFocus()
+                        } else {
+                            focusHeaderStatRow()
+                        }
+                    }
+                )
+                boundTabTitles = state.tabTitles
+                isBindingTabs = false
+                applyListTabSelection(state)
+            } else if (state.selectedTabIndex != boundSelectedTabIndex) {
+                applyListTabSelection(state)
+            }
+        }
+
+        private fun applyListTabSelection(state: HeaderState) {
+            boundSelectedTabIndex = state.selectedTabIndex
+            val tabLayout = binding.tabFilter
+            if (tabLayout.selectedTabPosition != state.selectedTabIndex) {
+                isBindingTabs = true
+                tabLayout.getTabAt(state.selectedTabIndex)?.select()
+                isBindingTabs = false
+            }
         }
 
         /** 筛选栏上方向落点：关注按钮 → 关注/粉丝文本（与 Fragment 顶行 UP 兜底同序）。 */

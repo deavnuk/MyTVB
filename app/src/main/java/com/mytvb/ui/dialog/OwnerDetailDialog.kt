@@ -346,7 +346,8 @@ class OwnerDetailDialog(
                 tvFocusController?.focusPrimary() == true
             },
             onNavigateUp = {
-                if (binding.buttonFollow.isVisible) binding.buttonFollow.requestFocus() else false
+                // tab 正上方最近的可达控件是头部行排序按钮（全屏页同款：tab UP → 排序按钮）
+                if (binding.buttonOrder.isVisible) binding.buttonOrder.requestFocus() else false
             },
             onEdgeRight = {
                 // 最右 tab 右键：聚焦同行右端的排序按钮
@@ -849,7 +850,8 @@ class OwnerDetailDialog(
                 tvFocusController?.focusPrimary() == true
             },
             onNavigateUp = {
-                if (binding.buttonFollow.isVisible) binding.buttonFollow.requestFocus() else false
+                // tab 正上方最近的可达控件是头部行排序按钮（全屏页同款：tab UP → 排序按钮）
+                if (binding.buttonOrder.isVisible) binding.buttonOrder.requestFocus() else false
             },
             onEdgeRight = {
                 // 最右 tab 右键：聚焦头部行（关注按钮左侧）的排序按钮

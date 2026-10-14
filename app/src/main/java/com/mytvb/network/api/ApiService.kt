@@ -93,7 +93,8 @@ interface ApiService {
     suspend fun getUserDynamic(
         @Query("mid") mid: Long,
         @Query("pn") page: Int,
-        @Query("ps") pageSize: Int
+        @Query("ps") pageSize: Int,
+        @Query("order") order: String = "pubdate"
     ): BaseResponse<UserDynamicResponse>
 
     @GET("x/space/wbi/arc/search")

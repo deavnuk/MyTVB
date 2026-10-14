@@ -185,7 +185,9 @@ fun TabLayout.enableTouchNavigation(
  */
 fun TabLayout.enableDirectTabNavigation(
     onNavigateDown: (() -> Boolean)? = null,
-    onNavigateUp: (() -> Boolean)? = null
+    onNavigateUp: (() -> Boolean)? = null,
+    onEdgeLeft: (() -> Boolean)? = null,
+    onEdgeRight: (() -> Boolean)? = null
 ) {
     post {
         val tabStrip = getChildAt(0) as? ViewGroup ?: return@post
@@ -205,10 +207,12 @@ fun TabLayout.enableDirectTabNavigation(
                 when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_DOWN -> onNavigateDown?.invoke() ?: false
                     KeyEvent.KEYCODE_DPAD_UP -> onNavigateUp?.invoke() ?: false
-                    // 首/末 tab 的越界左右键一律消费：放行会被 FocusFinder 几何搜索
-                    // 把焦点送到关注按钮等不可预期的位置（tab 栏内到边界就是不动）
-                    KeyEvent.KEYCODE_DPAD_LEFT -> index == 0
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> index == tabStrip.childCount - 1
+                    // 首/末 tab 的越界左右键：回调接管去向；未提供回调则一律消费——
+                    // 放行会被 FocusFinder 几何搜索把焦点送到关注按钮等不可预期的位置
+                    KeyEvent.KEYCODE_DPAD_LEFT ->
+                        if (index == 0) onEdgeLeft?.invoke() ?: true else false
+                    KeyEvent.KEYCODE_DPAD_RIGHT ->
+                        if (index == tabStrip.childCount - 1) onEdgeRight?.invoke() ?: true else false
                     else -> false
                 }
             }

@@ -2,18 +2,22 @@ package com.mytvb.ui.dialog
 
 import android.content.Context
 import android.os.SystemClock
+import android.view.KeyEvent
 import android.view.View
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.ContextCompat
 import android.view.LayoutInflater
 import android.view.Window
+import com.mytvb.core.ui.base.ChoiceDialog
 import com.mytvb.core.ui.base.DialogWindowFit
 
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDialog
 import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentActivity
 import com.google.android.material.tabs.TabLayout
 import com.mytvb.core.ui.tab.enableDirectTabNavigation
+import com.mytvb.core.ui.tab.focusNearestTabTo
 import com.mytvb.core.ui.tab.focusSelectedTab
 import com.mytvb.core.ui.user.UserBadgeText
 import com.mytvb.core.ui.user.UserBadgesStore
@@ -89,6 +93,19 @@ class OwnerDetailDialog(
     private enum class TabKind { VIDEO, SERIES, SEASON }
 
     /**
+     * 全局列表排序（对所有 tab 生效）：
+     * 最新发布=视频 pubdate+合集系列最新在前；最早发布=合集系列正序（投稿接口无正序，视频仍最新发布）；
+     * 最多播放=视频 click 排序，合集系列接口不支持播放排序→翻页拉全后客户端按 stat.view 降序；
+     * 最多收藏仅视频投稿接口支持，合集系列保持最新在前（其响应无收藏数）。
+     */
+    private enum class OwnerListOrder(@StringRes val labelRes: Int) {
+        NEWEST(R.string.model_search_order_pub_date),
+        MOST_VIEWED(R.string.space_order_most_played),
+        MOST_FAVORITE(R.string.model_search_order_most_collection),
+        OLDEST(R.string.space_sort_oldest_first)
+    }
+
+    /**
      * 每个 tab 独立的列表状态。切换 tab 时把 items 铺回 adapter，切回不重载；
      * 后台翻页/预取也落在各自 state 上（loading 也按 tab 独立），跨 tab 的在飞请求不会互相污染。
      */
@@ -111,6 +128,9 @@ class OwnerDetailDialog(
         var scrollPos: Int = -1
         var prefetchJob: Deferred<TabPage>? = null
         var prefetchPage: Int = 0
+
+        // 视频 tab「最早发布」倒翻模式缓存的总投稿数（末页跳转用）
+        var totalCount: Int = 0
     }
 
     /** 一页数据的解析结果：过滤后的视频 + 翻页判定。 */
@@ -139,6 +159,9 @@ class OwnerDetailDialog(
     // 用户焦点进过内容卡片（在浏览列表）后不再自动跳 tab，避免打断浏览。
     private var userEngagedContent = false
 
+    // 全局排序：一次选择控制所有 tab 的列表顺序
+    private var order = OwnerListOrder.NEWEST
+
     // 两级返回：焦点在视频列表 → 第一次返回焦点上移到当前 tab；焦点已在 tab/关注等 header 区 → 直接关闭
     // （回调注册在 Dialog 自己的 onBackPressedDispatcher 上，随 dialog lifecycle 自动移除）
 
@@ -157,7 +180,8 @@ class OwnerDetailDialog(
             heightPx = context.resources.getDimensionPixelSize(R.dimen.px935),
             tag = "ownerDetail"
         )
-        binding.root.setOnClickListener { dismiss() }
+        // 点击关闭只由 DialogWindowFit 容器的暗区监听承担（点卡片外关闭）；
+        // 不给内容根挂 dismiss——那会把卡片内空白点击也变成关闭。
         initView()
         bindOwnerHeader()
         loadData()
@@ -184,6 +208,19 @@ class OwnerDetailDialog(
         binding.buttonFollow.setOnClickListener {
             if (!checkLogin()) return@setOnClickListener
             toggleFollow()
+        }
+        binding.buttonOrder.setOnClickListener { showOrderDialog() }
+        binding.buttonOrder.setOnKeyListener { _, keyCode, event ->
+            if (event.action != KeyEvent.ACTION_DOWN) {
+                return@setOnKeyListener false
+            }
+            when (keyCode) {
+                // 头部行（关注按钮左侧）：下进 tab 栏、右到关注、上方无控件消费防乱跳
+                KeyEvent.KEYCODE_DPAD_DOWN -> binding.tabLayout.focusSelectedTab()
+                KeyEvent.KEYCODE_DPAD_RIGHT -> binding.buttonFollow.requestFocus()
+                KeyEvent.KEYCODE_DPAD_UP -> true
+                else -> false
+            }
         }
         binding.recyclerView.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {
@@ -226,9 +263,7 @@ class OwnerDetailDialog(
         binding.buttonFollow.isVisible = !isSelf
         updateFollowUi(
             labelRes = R.string.follow,
-            textColorRes = R.color.colorAccent,
-            iconRes = R.drawable.ic_plus,
-            iconTintRes = R.color.colorAccent
+            iconRes = R.drawable.ic_plus
         )
     }
 
@@ -308,11 +343,14 @@ class OwnerDetailDialog(
         // 独立背景/焦点文字色/DPAD 上下导航（该扩展幂等，重复绑定无害）。
         binding.tabLayout.enableDirectTabNavigation(
             onNavigateDown = {
-                AppLog.d(TAG, "tab navigate down -> content")
                 tvFocusController?.focusPrimary() == true
             },
             onNavigateUp = {
                 if (binding.buttonFollow.isVisible) binding.buttonFollow.requestFocus() else false
+            },
+            onEdgeRight = {
+                // 最右 tab 右键：聚焦同行右端的排序按钮
+                if (binding.buttonOrder.isVisible) binding.buttonOrder.requestFocus() else false
             }
         )
         AppLog.i(TAG, "tab added: ${state.kind} ${state.title} seriesId=${state.seriesId} seasonId=${state.seasonId}")
@@ -345,44 +383,96 @@ class OwnerDetailDialog(
         when {
             relation.isMutualFollow -> updateFollowUi(
                 labelRes = R.string.follow_as_friend,
-                textColorRes = R.color.grey,
-                iconRes = R.drawable.ic_check,
-                iconTintRes = R.color.grey
+                iconRes = R.drawable.ic_check
             )
             relationAttribute == 2 -> updateFollowUi(
                 labelRes = R.string.followed,
-                textColorRes = R.color.grey,
-                iconRes = R.drawable.ic_check,
-                iconTintRes = R.color.grey
+                iconRes = R.drawable.ic_check
             )
             else -> updateFollowUi(
                 labelRes = R.string.follow,
-                textColorRes = R.color.colorAccent,
-                iconRes = R.drawable.ic_plus,
-                iconTintRes = R.color.colorAccent
+                iconRes = R.drawable.ic_plus
             )
         }
     }
 
     private fun activeState(): TabState = tabStates[currentIndex]
 
+    /** 合集/系列接口只支持时间方向：最多播放时改由客户端拉全量后按 stat.view 排序。 */
+    private fun needsClientSideSort(state: TabState): Boolean =
+        state.kind != TabKind.VIDEO && order == OwnerListOrder.MOST_VIEWED
+
+    /**
+     * 视频 tab「最早发布」：投稿接口无正序参数，改为跳到末页（最老的一页）倒着翻、
+     * 页内反转（onSuccess），对用户呈现老→新顺序。
+     */
+    private fun videoOldestMode(state: TabState): Boolean =
+        state.kind == TabKind.VIDEO && order == OwnerListOrder.OLDEST
+
+    /** 触底翻页方向：倒翻模式页码递减，其余递增。 */
+    private fun advancePage(state: TabState) {
+        if (videoOldestMode(state)) state.page-- else state.page++
+    }
+
+    /** 预取的“下一页”页码（倒翻模式为当前页-1；已到第1页边缘时返回0禁预取，
+     *  避免“页码1”被 fetchTabPage 当成首次请求再次跳到末页）。 */
+    private fun nextPageOf(state: TabState): Int =
+        if (videoOldestMode(state)) {
+            if (state.page > 2) state.page - 1 else 0
+        } else {
+            state.page + 1
+        }
+
+    /** 请求失败回滚页码（与 advancePage 反向）。 */
+    private fun rollbackPage(state: TabState) {
+        if (videoOldestMode(state)) state.page++ else state.page--
+    }
+
     private suspend fun fetchTabPage(state: TabState, page: Int): TabPage =
         when (state.kind) {
             TabKind.VIDEO -> {
-                val data = userRepository.getUserDynamic(owner.mid, page = page, pageSize = PAGE_SIZE)
-                    .getOrThrow().data ?: error("empty data")
-                TabPage(data.archives, data.hasMore)
+                // 「最早发布」：投稿接口无正序参数，跳末页倒着翻（fetchTabPage 内换算页码）
+                if (videoOldestMode(state)) {
+                    if (state.totalCount <= 0) {
+                        val probe = userRepository.getUserDynamic(
+                            owner.mid, page = 1, pageSize = PAGE_SIZE
+                        ).getOrThrow().data ?: error("empty data")
+                        state.totalCount = probe.totalCount
+                    }
+                    val maxPage = ((state.totalCount + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)
+                    val pn = page.coerceAtMost(maxPage).let { if (page <= 1) maxPage else it }
+                    AppLog.d(TAG, "fetch video oldest pn=$pn total=${state.totalCount}")
+                    val data = userRepository.getUserDynamic(
+                        owner.mid, page = pn, pageSize = PAGE_SIZE
+                    ).getOrThrow().data ?: error("empty data")
+                    state.page = pn
+                    TabPage(data.archives, pn > 1)
+                } else {
+                    val orderValue = when (order) {
+                        OwnerListOrder.MOST_VIEWED -> "click"
+                        OwnerListOrder.MOST_FAVORITE -> "stow"
+                        else -> "pubdate"
+                    }
+                    AppLog.d(TAG, "fetch video page=$page order=$orderValue")
+                    val data = userRepository.getUserDynamic(
+                        owner.mid, page = page, pageSize = PAGE_SIZE,
+                        order = orderValue
+                    ).getOrThrow().data ?: error("empty data")
+                    TabPage(data.archives, data.hasMore)
+                }
             }
             TabKind.SERIES -> {
                 val data = userRepository.getSeriesArchives(
-                    owner.mid, seriesId = state.seriesId, page = page, pageSize = PAGE_SIZE
+                    owner.mid, seriesId = state.seriesId, page = page, pageSize = PAGE_SIZE,
+                    sortDesc = order != OwnerListOrder.OLDEST
                 ).getOrThrow().data ?: error("empty data")
                 TabPage(data.archives, data.hasMore)
             }
             TabKind.SEASON -> {
                 // seasons_archives_list 的 page 只带 total（无 num/size/has_more），按总数算翻页
                 val data = userRepository.getSeasonArchives(
-                    owner.mid, seasonId = state.seasonId, page = page, pageSize = PAGE_SIZE
+                    owner.mid, seasonId = state.seasonId, page = page, pageSize = PAGE_SIZE,
+                    sortDesc = order != OwnerListOrder.OLDEST
                 ).getOrThrow().data ?: error("empty data")
                 val loaded = state.items.size + data.archives.size
                 TabPage(data.archives, if (data.totalCount > 0) loaded < data.totalCount else data.archives.size >= PAGE_SIZE)
@@ -431,18 +521,52 @@ class OwnerDetailDialog(
                 // 回调时重判：发起后用户可能已切 tab，UI 操作只允许落在当前显示的 tab 上，
                 // 否则旧 tab 的数据会 addData 进新 tab 的列表。
                 val stillCurrent = tabStates.indexOf(state) == currentIndex
+                // 倒翻模式页内反转：接口返回仍是新→老，反转后呈现老→新
                 val videos = ContentFilter.filterVideos(binding.root.context, pageData.videos)
+                    .let { if (videoOldestMode(state)) it.reversed() else it }
                 state.hasMore = pageData.hasMore
-                if (pageToLoad == 1) {
+                // 倒翻首次请求的页码是末页（非1）：按“列表是否为空”判定首批数据
+                val isFirstBatch = pageToLoad == 1 || state.items.isEmpty()
+                if (isFirstBatch) {
                     state.loadedFirstPage = true
                     state.items = videos.toMutableList()
+                } else {
+                    state.items.addAll(videos)
+                }
+                // 合集/系列 + 最多播放：接口不支持播放排序，翻页拉全后客户端按播放量排序，
+                // 中途不铺 UI（footer 转圈示意加载中）
+                if (needsClientSideSort(state)) {
+                    if (stillCurrent && pageToLoad == 1) {
+                        videoAdapter.setData(emptyList())
+                        videoAdapter.setShowLoadMore(true)
+                    }
+                    if (state.hasMore && state.page < MAX_SEARCH_PAGES) {
+                        state.page++
+                        loadTabPage(state)
+                        return@onSuccess
+                    }
+                    val sorted = state.items.sortedByDescending { it.stat?.view ?: it.play }
+                    state.items = sorted.toMutableList()
+                    state.hasMore = false
+                    if (state.locatedIndex >= 0) {
+                        state.locatedIndex = sorted.indexOfFirst { matchesCurrentVideo(it) }
+                    }
+                    AppLog.i(TAG, "client sort done: ${state.title} items=${sorted.size} top=${sorted.firstOrNull()?.stat?.view}")
+                    if (stillCurrent) {
+                        videoAdapter.setData(state.items) {
+                            tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
+                        }
+                        videoAdapter.setShowLoadMore(false)
+                    }
+                    return@onSuccess
+                }
+                if (isFirstBatch) {
                     if (stillCurrent) {
                         videoAdapter.setData(state.items) {
                             tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
                         }
                     }
                 } else {
-                    state.items.addAll(videos)
                     if (stillCurrent) {
                         videoAdapter.addData(videos)
                         tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
@@ -455,7 +579,7 @@ class OwnerDetailDialog(
                 // 当前页渲染成功后，立即在后台预取下一页，把网络往返藏进用户浏览过程。
                 // 递归搜索路径也会消费它，让"从旧视频打开"的串行循环每步都更快。
                 if (stillCurrent) {
-                    schedulePrefetch(state, state.page + 1)
+                    schedulePrefetch(state, nextPageOf(state))
                 }
                 if (state.searching && state.hasMore && state.page < MAX_SEARCH_PAGES) {
                     state.page++
@@ -468,7 +592,7 @@ class OwnerDetailDialog(
                     "tab=${state.title} page=$pageToLoad failed elapsed=${SystemClock.elapsedRealtime() - startMs}ms " +
                         "prefetchHit=$prefetchHit err=${it.message}"
                 )
-                state.page--
+                rollbackPage(state)
                 toast(it.message ?: context.getString(R.string.dialog_load_failed))
                 maybeLoadActiveTabFirstPage()
             }
@@ -580,6 +704,7 @@ class OwnerDetailDialog(
      */
     private fun schedulePrefetch(state: TabState, nextPage: Int) {
         if (!state.hasMore) return
+        if (nextPage < 1) return
         if (nextPage == state.prefetchPage && state.prefetchJob != null) return
         state.prefetchJob?.cancel()
         state.prefetchPage = nextPage
@@ -604,7 +729,7 @@ class OwnerDetailDialog(
             binding.recyclerView.post {
                 val s = activeState()
                 if (!s.loading && s.hasMore) {
-                    s.page++
+                    advancePage(s)
                     loadTabPage(s)
                 }
             }
@@ -669,7 +794,9 @@ class OwnerDetailDialog(
     /** 把 state 的缓存数据铺回 adapter，必要时补发该 tab 的首屏加载。 */
     private fun applyTabState(state: TabState, autoFocus: Boolean) {
         videoAdapter.setShowLoadMore(state.hasMore)
-        videoAdapter.setData(state.items) {
+        // 客户端排序未完成（还有页未拉）：铺空列表+转圈，拉全排序后由回调统一铺
+        val showItems = if (needsClientSideSort(state) && state.hasMore) emptyList() else state.items
+        videoAdapter.setData(showItems) {
             tvFocusController?.onDataChanged(TvDataChangeReason.REPLACE_PRESERVE_ANCHOR)
         }
         if (autoFocus && state.locatedIndex >= 0) {
@@ -685,6 +812,12 @@ class OwnerDetailDialog(
     /** 当前 tab 首屏还没加载就补发（切 tab 时若该 tab 请求在飞，state.loading 会挡住，回调里兜底）。 */
     private fun maybeLoadActiveTabFirstPage() {
         val state = activeState()
+        // 客户端排序进行到一半（后台预载只拉了首页）：接续拉剩余页
+        if (needsClientSideSort(state) && state.loadedFirstPage && state.hasMore && !state.loading) {
+            state.page++
+            loadTabPage(state)
+            return
+        }
         if (state.loading || !state.hasMore || state.loadedFirstPage || state.items.isNotEmpty()) return
         loadTabPage(state)
     }
@@ -701,11 +834,14 @@ class OwnerDetailDialog(
         tabLayout.visibility = View.VISIBLE
         tabLayout.enableDirectTabNavigation(
             onNavigateDown = {
-                AppLog.d(TAG, "tab navigate down -> content")
                 tvFocusController?.focusPrimary() == true
             },
             onNavigateUp = {
                 if (binding.buttonFollow.isVisible) binding.buttonFollow.requestFocus() else false
+            },
+            onEdgeRight = {
+                // 最右 tab 右键：聚焦头部行（关注按钮左侧）的排序按钮
+                binding.buttonOrder.requestFocus()
             }
         )
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
@@ -723,6 +859,43 @@ class OwnerDetailDialog(
     private fun focusTabFromContent(): Boolean {
         if (binding.tabLayout.visibility != View.VISIBLE) return false
         return binding.tabLayout.focusSelectedTab()
+    }
+
+    /** 全局排序变化：重置所有 tab 的列表状态，当前 tab 立即重载，其余切入时补发首屏。 */
+    private fun resetAllTabsForOrderChange() {
+        tabStates.forEach { s ->
+            s.items.clear()
+            s.page = 1
+            s.hasMore = true
+            s.loadedFirstPage = false
+            s.searching = false
+            s.searchDone = false
+            s.scrollPos = -1
+            s.totalCount = 0
+            s.prefetchJob?.cancel()
+            s.prefetchJob = null
+        }
+        videoAdapter.setData(emptyList())
+        videoAdapter.setShowLoadMore(true)
+        binding.recyclerView.scrollToPosition(0)
+        loadTabPage(activeState())
+    }
+
+    private fun showOrderDialog() {
+        val orders = OwnerListOrder.values()
+        ChoiceDialog.show(
+            context = context,
+            title = context.getString(R.string.video_order),
+            options = orders.map { context.getString(it.labelRes) },
+            selectedIndex = orders.indexOf(order)
+        ) { which ->
+            val newOrder = orders[which]
+            if (newOrder != order) {
+                order = newOrder
+                binding.textOrder.setText(newOrder.labelRes)
+                resetAllTabsForOrderChange()
+            }
+        }
     }
 
     private fun focusDefault() {
@@ -749,17 +922,16 @@ class OwnerDetailDialog(
         }
     }
 
+    /** 白描边胶囊按钮样式：文字/图标统一白色，状态差异仅靠文案与 +/✓ 图标区分。 */
     private fun updateFollowUi(
         labelRes: Int,
-        textColorRes: Int,
-        iconRes: Int,
-        iconTintRes: Int
+        iconRes: Int
     ) {
         binding.textFollow.text = context.getString(labelRes)
-        binding.textFollow.setTextColor(ContextCompat.getColor(context, textColorRes))
+        binding.textFollow.setTextColor(ContextCompat.getColor(context, R.color.white))
         binding.iconFollow.setImageResource(iconRes)
         binding.iconFollow.imageTintList =
-            ContextCompat.getColorStateList(context, iconTintRes)
+            ContextCompat.getColorStateList(context, R.color.white)
     }
 
     private fun toggleFollow() {
@@ -828,7 +1000,7 @@ class OwnerDetailDialog(
             loadMore = {
                 val state = activeState()
                 if (!state.loading && state.hasMore) {
-                    state.page++
+                    advancePage(state)
                     loadTabPage(state)
                 }
             }

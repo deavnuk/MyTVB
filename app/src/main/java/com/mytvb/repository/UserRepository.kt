@@ -218,7 +218,8 @@ class UserRepository(
     suspend fun getUserDynamic(
         mid: Long,
         page: Int,
-        pageSize: Int = 20
+        pageSize: Int = 20,
+        order: String = "pubdate"
     ): Result<BaseResponse<UserDynamicResponse>> =
         runCatching {
             if (isLoggedIn()) {
@@ -226,7 +227,7 @@ class UserRepository(
                     "mid" to mid.toString(),
                     "pn" to page.toString(),
                     "ps" to pageSize.toString(),
-                    "order" to "pubdate",
+                    "order" to order,
                     "platform" to "web",
                     "web_location" to "333.1387",
                     "order_avoided" to "true",
@@ -239,7 +240,7 @@ class UserRepository(
                     )
                 }
             } else {
-                apiService.getUserDynamic(mid, page, pageSize)
+                apiService.getUserDynamic(mid, page, pageSize, order)
             }
         }
 
@@ -280,11 +281,12 @@ class UserRepository(
         mid: Long,
         seriesId: Long,
         page: Int,
-        pageSize: Int = 20
+        pageSize: Int = 20,
+        sortDesc: Boolean = true
     ): Result<BaseResponse<UserDynamicResponse>> =
         runCatching {
             sessionGateway.syncAuthState(
-                apiService.getSeriesArchives(mid, seriesId, page, pageSize),
+                apiService.getSeriesArchives(mid, seriesId, page, pageSize, if (sortDesc) "desc" else "asc"),
                 source = "getSeriesArchives"
             )
         }
@@ -293,11 +295,13 @@ class UserRepository(
         mid: Long,
         seasonId: Long,
         page: Int,
-        pageSize: Int = 20
+        pageSize: Int = 20,
+        sortDesc: Boolean = true
     ): Result<BaseResponse<SeasonArchivesResponse>> =
         runCatching {
             sessionGateway.syncAuthState(
-                apiService.getSeasonArchives(mid, seasonId, page = page, pageSize = pageSize),
+                // sort_reverse 语义：true=倒序（最新在前），false=正序（最老在前，合集默认从第1集开始）
+                apiService.getSeasonArchives(mid, seasonId, page = page, pageSize = pageSize, sortReverse = sortDesc),
                 source = "getSeasonArchives"
             )
         }

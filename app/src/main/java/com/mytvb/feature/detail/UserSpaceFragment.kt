@@ -17,6 +17,7 @@ import com.mytvb.databinding.FragmentUserSpaceBinding
 import com.mytvb.event.AppEventHub
 import com.mytvb.model.user.CheckRelationModel
 import com.mytvb.model.user.UserSpaceInfo
+import com.mytvb.model.video.SpaceVideoOrder
 import com.mytvb.network.session.NetworkSessionGateway
 import com.mytvb.repository.UserRepository
 import com.mytvb.ui.adapter.UserSpaceHeaderAdapter
@@ -24,8 +25,10 @@ import com.mytvb.ui.adapter.VideoAdapter
 import com.mytvb.core.ui.base.BaseAdapter
 import com.mytvb.core.ui.base.BaseFragment
 import com.mytvb.core.ui.base.BaseListFragment
+import com.mytvb.core.ui.base.ChoiceDialog
 import com.mytvb.core.ui.base.VideoRecyclerViewTuning
 import com.mytvb.core.ui.base.adaptiveSpanCount
+import com.mytvb.core.ui.system.ViewUtils
 import com.mytvb.feature.user.FollowUserListFragment
 import com.mytvb.core.ui.layout.WrapContentGridLayoutManager
 import com.mytvb.core.ui.decoration.GridSpacingItemDecoration
@@ -53,6 +56,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
         FOLLOW,
         FOLLOWING,
         FOLLOWER,
+        FILTER,
         CONTENT
     }
 
@@ -87,6 +91,9 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
     private var tvFocusController: TvListFocusController? = null
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
 
+    // 投稿列表当前排序（接口仅支持 pubdate/click/stow，无按点赞排序）
+    private var currentOrder = SpaceVideoOrder.PubDate
+
     override fun onResume() {
         super.onResume()
         restoreFocus()
@@ -110,11 +117,13 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
                     UserSpaceHeaderAdapter.FocusTarget.FOLLOW -> FocusArea.FOLLOW
                     UserSpaceHeaderAdapter.FocusTarget.FOLLOWING -> FocusArea.FOLLOWING
                     UserSpaceHeaderAdapter.FocusTarget.FOLLOWER -> FocusArea.FOLLOWER
+                    UserSpaceHeaderAdapter.FocusTarget.FILTER -> FocusArea.FILTER
                 }
             },
             onMoveToContent = {
                 requestContentFocus(lastFocusedVideoPosition)
-            }
+            },
+            onOrderClick = ::showOrderDialog
         )
         videoAdapter = VideoAdapter(
             onTopEdgeUp = ::focusHeaderFromContent,
@@ -267,7 +276,10 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
         binding.progressBar.visibility = View.VISIBLE
 
         lifecycleScope.launch {
-            val result = userRepository.getUserDynamic(mid, currentPage, 20)
+            val result = userRepository.getUserDynamic(
+                mid, currentPage, 20,
+                order = currentOrder.orderValue
+            )
 
             result.onSuccess { response ->
                 binding.progressBar.visibility = View.GONE
@@ -289,6 +301,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
                             tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                         }
                         headerAdapter.updateVideoCount(page.totalCount)
+                        headerAdapter.updateOrderLabel(currentOrder.nameRes)
                         if (!hasRequestedInitialFocus && currentPage == 1) {
                             hasRequestedInitialFocus = true
                             requestHeaderFocus(FocusArea.BACK)
@@ -353,12 +366,34 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
         }
     }
 
-    private fun refreshUserVideos() {
+    private fun refreshUserVideos(scrollToTop: Boolean = false) {
         currentPage = 1
         hasMore = true
         lastFocusedVideoPosition = RecyclerView.NO_POSITION
         tvFocusController?.clearAnchorForUserRefresh()
+        if (scrollToTop) {
+            binding.recyclerViewVideos.scrollToPosition(0)
+        }
         loadUserVideos()
+    }
+
+    private fun showOrderDialog() {
+        val orders = SpaceVideoOrder.values()
+        val labels = orders.map { getString(it.nameRes) }
+        ChoiceDialog.show(
+            context = requireContext(),
+            title = getString(R.string.video_order),
+            options = labels,
+            selectedIndex = orders.indexOf(currentOrder).coerceAtLeast(0)
+        ) { which ->
+            val newOrder = orders[which]
+            if (newOrder != currentOrder) {
+                currentOrder = newOrder
+                headerAdapter.updateOrderLabel(newOrder.nameRes)
+                refreshUserVideos(scrollToTop = true)
+            }
+        }
+        activity?.let { ViewUtils.hideSystemBars(it) }
     }
 
     private fun refreshUserSpace() {
@@ -506,6 +541,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
             FocusArea.FOLLOW -> UserSpaceHeaderAdapter.FocusTarget.FOLLOW
             FocusArea.FOLLOWING -> UserSpaceHeaderAdapter.FocusTarget.FOLLOWING
             FocusArea.FOLLOWER -> UserSpaceHeaderAdapter.FocusTarget.FOLLOWER
+            FocusArea.FILTER -> UserSpaceHeaderAdapter.FocusTarget.FILTER
             else -> null
         } ?: return binding.buttonBack.requestFocus()
         if (headerAdapter.requestFocus(target)) {

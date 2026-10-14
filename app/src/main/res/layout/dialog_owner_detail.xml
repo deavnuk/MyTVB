@@ -36,7 +36,7 @@
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:id="@+id/button_follow"
-        android:background="@drawable/cell_background"
+        android:background="@drawable/bg_owner_dialog_outline_button"
         android:paddingLeft="@dimen/px30"
         android:paddingTop="@dimen/px15"
         android:paddingRight="@dimen/px30"
@@ -57,10 +57,10 @@
             android:layout_width="@dimen/px35"
             android:layout_height="@dimen/px35"
             app:srcCompat="@drawable/ic_plus"
-            app:tint="@color/colorAccent"/>
+            app:tint="@color/white"/>
         <androidx.appcompat.widget.AppCompatTextView
             android:textSize="@dimen/px30"
-            android:textColor="@color/colorAccent"
+            android:textColor="@color/white"
             android:id="@+id/text_follow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -92,6 +92,42 @@
         app:tabSelectedTextColor="?android:attr/textColorPrimary"
         app:tabTextAppearance="@style/OwnerDetailTabText"
         app:tabSelectedTextAppearance="@style/OwnerDetailTabText"/>
+    <androidx.appcompat.widget.LinearLayoutCompat
+        android:id="@+id/buttonOrder"
+        android:background="@drawable/bg_owner_dialog_outline_button"
+        android:paddingLeft="@dimen/px14"
+        android:paddingRight="@dimen/px14"
+        android:focusable="true"
+        android:clickable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="0dp"
+        android:layout_marginEnd="@dimen/px20"
+        app:layout_constraintBottom_toBottomOf="@+id/button_follow"
+        app:layout_constraintEnd_toStartOf="@+id/button_follow"
+        app:layout_constraintTop_toTopOf="@+id/button_follow">
+        <androidx.appcompat.widget.AppCompatImageView
+            android:layout_width="@dimen/px32"
+            android:layout_height="@dimen/px32"
+            app:srcCompat="@drawable/ic_order"
+            app:tint="@color/white"/>
+        <androidx.appcompat.widget.AppCompatTextView
+            android:textSize="@dimen/px28"
+            android:textColor="@color/white"
+            android:id="@+id/textOrder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="@dimen/px8"
+            android:text="@string/model_search_order_pub_date"
+            android:layout_marginStart="@dimen/px8"/>
+        <androidx.appcompat.widget.AppCompatImageView
+            android:layout_width="@dimen/px20"
+            android:layout_height="@dimen/px20"
+            android:layout_marginStart="@dimen/px6"
+            app:srcCompat="@drawable/arrow_down"
+            app:tint="@color/white"/>
+    </androidx.appcompat.widget.LinearLayoutCompat>
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerView"
         android:clipToPadding="false"

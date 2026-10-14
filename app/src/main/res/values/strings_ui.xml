@@ -101,6 +101,8 @@
     <string name="model_series_variety">综艺</string>
     <string name="model_search_order_total_rank">综合排序</string>
     <string name="model_search_order_click">最多点击</string>
+    <string name="space_order_most_played">最多播放</string>
+    <string name="space_sort_oldest_first">最早发布</string>
     <string name="model_search_order_pub_date">最新发布</string>
     <string name="model_search_order_dm">最多弹幕</string>
     <string name="model_search_order_most_collection">最多收藏</string>

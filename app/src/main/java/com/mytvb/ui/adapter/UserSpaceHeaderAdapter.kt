@@ -19,13 +19,15 @@ class UserSpaceHeaderAdapter(
     private val onFollowingClick: () -> Unit,
     private val onFollowerClick: () -> Unit,
     private val onHeaderFocusChanged: (FocusTarget) -> Unit,
-    private val onMoveToContent: () -> Boolean
+    private val onMoveToContent: () -> Boolean,
+    private val onOrderClick: () -> Unit
 ) : RecyclerView.Adapter<UserSpaceHeaderAdapter.HeaderViewHolder>() {
 
     enum class FocusTarget {
         FOLLOW,
         FOLLOWING,
-        FOLLOWER
+        FOLLOWER,
+        FILTER
     }
 
     data class HeaderState(
@@ -37,7 +39,10 @@ class UserSpaceHeaderAdapter(
         @StringRes val followLabelRes: Int = R.string.follow,
         @DrawableRes val followBackgroundRes: Int = R.drawable.bg_follow_space_btn,
         @DrawableRes val followIconRes: Int = R.drawable.ic_plus,
-        val followDimmed: Boolean = false
+        val followDimmed: Boolean = false,
+        // 投稿排序按钮（「投稿视频 N」行右端），列表首屏加载后显示
+        @StringRes val orderLabelRes: Int = R.string.model_search_order_pub_date,
+        val showOrderButton: Boolean = false
     )
 
     companion object {
@@ -106,6 +111,15 @@ class UserSpaceHeaderAdapter(
         submitState(state.copy(videoCount = count))
     }
 
+    /** 更新排序显示名；列表首屏加载后调用一次以显示按钮。 */
+    fun updateOrderLabel(@StringRes labelRes: Int) {
+        submitState(state.copy(orderLabelRes = labelRes, showOrderButton = true))
+    }
+
+    fun isFilterBarFocused(): Boolean {
+        return attachedHolder?.isOrderButtonFocused() ?: false
+    }
+
     fun updateFollowState(
         @StringRes labelRes: Int,
         @DrawableRes backgroundRes: Int,
@@ -169,6 +183,25 @@ class UserSpaceHeaderAdapter(
             binding.userSpaceTop.buttonFollow.setOnKeyListener(contentExitListener)
             binding.tvFollowing.setOnKeyListener(contentExitListener)
             binding.tvFollower.setOnKeyListener(contentExitListener)
+
+            binding.buttonOrder.setOnClickListener {
+                onOrderClick()
+            }
+            binding.buttonOrder.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    onHeaderFocusChanged(FocusTarget.FILTER)
+                }
+            }
+            binding.buttonOrder.setOnKeyListener { _, keyCode, event ->
+                if (event.action != KeyEvent.ACTION_DOWN) {
+                    return@setOnKeyListener false
+                }
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_DOWN -> onMoveToContent()
+                    KeyEvent.KEYCODE_DPAD_UP -> focusHeaderStatRow()
+                    else -> false
+                }
+            }
         }
 
         fun bind(state: HeaderState) {
@@ -205,6 +238,9 @@ class UserSpaceHeaderAdapter(
                 state.videoCount
             )
 
+            binding.buttonOrder.visibility = if (state.showOrderButton) View.VISIBLE else View.GONE
+            binding.textOrder.setText(state.orderLabelRes)
+
             val faceUrl = state.userInfo?.face
             if (faceUrl.isNullOrBlank()) {
                 ImageLoader.loadDrawableRes(
@@ -239,12 +275,28 @@ class UserSpaceHeaderAdapter(
         }
 
         fun requestFocus(target: FocusTarget): Boolean {
+            if (target == FocusTarget.FILTER) {
+                if (!state.showOrderButton) return false
+                return binding.buttonOrder.requestFocus()
+            }
             val view = when (target) {
                 FocusTarget.FOLLOW -> binding.userSpaceTop.buttonFollow.takeIf { it.isShown }
                 FocusTarget.FOLLOWING -> binding.tvFollowing.takeIf { it.isShown }
                 FocusTarget.FOLLOWER -> binding.tvFollower.takeIf { it.isShown }
+                else -> null
             } ?: return false
             return view.requestFocus()
+        }
+
+        fun isOrderButtonFocused(): Boolean {
+            return binding.buttonOrder.hasFocus()
+        }
+
+        /** 筛选栏上方向落点：关注按钮 → 关注/粉丝文本（与 Fragment 顶行 UP 兜底同序）。 */
+        private fun focusHeaderStatRow(): Boolean {
+            return requestFocus(FocusTarget.FOLLOW) ||
+                requestFocus(FocusTarget.FOLLOWING) ||
+                requestFocus(FocusTarget.FOLLOWER)
         }
 
         /** 官方描边式按钮的左侧图标（+ / ✓），随已关注态弱化。 */

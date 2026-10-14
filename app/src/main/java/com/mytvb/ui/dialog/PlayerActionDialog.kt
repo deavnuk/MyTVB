@@ -62,7 +62,7 @@ class PlayerActionDialog(
             context.resources.getDimensionPixelSize(R.dimen.px1000),
             tag = "playerAction"
         )
-        binding.root.setOnClickListener { dismiss() }
+        // 点击关闭只由 DialogWindowFit 容器的暗区监听承担（点卡片外关闭），内容根不挂 dismiss
         initListeners()
         renderState()
         setOnShowListener {

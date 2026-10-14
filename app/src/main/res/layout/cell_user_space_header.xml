@@ -75,14 +75,57 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/px40"
         android:layout_marginTop="@dimen/px20"
-        android:layout_marginEnd="@dimen/px40"
+        android:layout_marginEnd="@dimen/px20"
         android:layout_marginBottom="@dimen/px8"
         android:textColor="?attr/tabBarNormal"
         android:textSize="@dimen/px28"
         android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/buttonOrder"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/header_bottom_barrier"
         tools:text="投稿视频 0" />
+
+    <androidx.appcompat.widget.LinearLayoutCompat
+        android:id="@+id/buttonOrder"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/px40"
+        android:background="@drawable/cell_background"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/px10"
+        android:paddingTop="@dimen/px10"
+        android:paddingEnd="@dimen/px10"
+        android:paddingBottom="@dimen/px10"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/tvVideoCount"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/tvVideoCount"
+        tools:visibility="visible">
+
+        <androidx.appcompat.widget.AppCompatImageView
+            android:layout_width="@dimen/px40"
+            android:layout_height="@dimen/px40"
+            app:srcCompat="@drawable/ic_order"
+            app:tint="?android:attr/textColorPrimary" />
+
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/textOrder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/px10"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="@dimen/px30"
+            tools:text="最新发布" />
+
+        <androidx.appcompat.widget.AppCompatImageView
+            android:layout_width="@dimen/px22"
+            android:layout_height="@dimen/px22"
+            android:layout_marginStart="@dimen/px8"
+            app:srcCompat="@drawable/arrow_down"
+            app:tint="?android:attr/textColorPrimary" />
+    </androidx.appcompat.widget.LinearLayoutCompat>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

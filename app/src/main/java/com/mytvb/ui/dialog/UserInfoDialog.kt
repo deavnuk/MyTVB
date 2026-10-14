@@ -46,7 +46,7 @@ class UserInfoDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
             context.resources.getDimensionPixelSize(R.dimen.px620),
             tag = "userInfo"
         )
-        binding.root.setOnClickListener { dismiss() }
+        // 点击关闭只由 DialogWindowFit 容器的暗区监听承担（点卡片外关闭），内容根不挂 dismiss
         bindUserInfo(sessionGateway.getUserInfo())
         bindUserStat(null)
         initListeners()

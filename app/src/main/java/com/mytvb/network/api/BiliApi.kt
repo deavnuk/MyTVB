@@ -154,6 +154,9 @@ object BiliApi {
             typeId = args?.optInt("tid", 0)?.takeIf { it > 0 } ?: args?.optInt("rid", 0) ?: 0,
             // 不感兴趣等反馈接口需要（服务端据此定位推荐上下文）
             trackId = obj.optString("track_id", ""),
+            // 官方以推荐理由文案表达关注关系（"已关注"/"53万点赞"），卡片据此显示已关注标记
+            isFollowed = obj.optString("rcmd_reason") == "已关注",
+            rcmdReason = obj.optString("rcmd_reason"),
             goto = "av"
         )
     }

@@ -450,10 +450,31 @@ class VideoAdapter(
         }
 
         private fun badgeTextFor(video: VideoModel): String {
-            val parts = mutableListOf<String>()
-            if (video.isFollowed) parts.add(views.root.context.getString(R.string.followed))
-            if (video.isPortrait) parts.add(views.root.context.getString(R.string.adapter_portrait))
-            return parts.joinToString("|")
+            // 对齐官方：每卡只显示一个标签。
+            // 已关注/竖屏必显；理由是服务端挑选的（天然稀疏）；
+            // 数值类（百万播放/点赞/投币）本地采样约 25% 显示（aid 确定性采样，刷新不变卦）
+            return when {
+                video.isFollowed -> views.root.context.getString(R.string.followed)
+                video.isPortrait -> views.root.context.getString(R.string.adapter_portrait)
+                video.rcmdReason.isNotBlank() -> video.rcmdReason
+                !isBadgeSampled(video) -> ""
+                (video.viewCount) >= 1_000_000L -> "百万播放"
+                video.like >= 1_000L -> "${milestoneText(video.like)}点赞"
+                video.coinCount >= 1_000L -> "${milestoneText(video.coinCount)}投币"
+                else -> ""
+            }
+        }
+
+        /** 数值类标签采样：aid 稳定散列取约 1/4 的卡，同一卡每次渲染结果一致。 */
+        private fun isBadgeSampled(video: VideoModel): Boolean {
+            val salt = if (video.bvid.isNotBlank()) video.bvid.hashCode() else video.aid.toInt()
+            return (salt and 0xFF) < 64
+        }
+
+        /** 里程碑进位：≥1万 显示整万，≥1千 显示整千（调用方保证 ≥1千）。 */
+        private fun milestoneText(count: Long): String = when {
+            count >= 10_000L -> "${count / 10_000L}万"
+            else -> "${count / 1_000L}千"
         }
 
         private fun resolveDisplayTitle(video: VideoModel): String {

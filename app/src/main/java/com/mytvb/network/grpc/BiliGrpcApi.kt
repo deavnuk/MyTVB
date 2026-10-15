@@ -79,6 +79,8 @@ object BiliGrpcApi {
             // 官方热门接口不下发弹幕数（手机 App 热门页同样不显示），卡片按 0 优雅隐藏
             pubDate = parseRelativeTimeText(viewAndTime.getOrNull(1)),
             trackId = base.args.trackId,
+            isFollowed = v5.rcmdReasonStyle.text == "已关注",
+            rcmdReason = v5.rcmdReasonStyle.text,
             typeName = base.args.tname.ifBlank { base.args.rname },
             typeId = (base.args.tid.takeIf { it > 0L } ?: base.args.rid.toLong()).toInt(),
             goto = "av"

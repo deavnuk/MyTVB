@@ -69,6 +69,10 @@ data class VideoModel(
 
     @SerializedName("track_id")
     val trackId: String = "",
+
+    /** 推荐理由文案（官方挑的最显著互动数："4万点赞"/"1万投币"/"已关注"），卡片角标显示 */
+    @SerializedName("rcmd_reason")
+    val rcmdReason: String = "",
     
     @SerializedName("tname")
     val typeName: String = "",
@@ -187,6 +191,12 @@ data class VideoModel(
     val danmakuCount: Long
         get() = stat?.danmaku ?: videoReview
 
+    val like: Long
+        get() = stat?.like ?: 0L
+
+    val coinCount: Long
+        get() = stat?.coin ?: 0L
+
     val authorName: String
         get() = owner?.name ?: ""
 
@@ -297,6 +307,9 @@ data class VideoModel(
                 cid = obj.optLong("cid", 0),
                 goto = obj.optString("goto", "av"),
                 trackId = obj.optString("track_id", ""),
+                // web 流为对象 {content}，app 流为纯字符串
+                rcmdReason = obj.optJSONObject("rcmd_reason")?.optString("content", "")
+                    ?: obj.optString("rcmd_reason", ""),
                 typeName = obj.optString("tname", ""),
                 typeId = obj.optInt("tid", 0),
                 dynamicText = obj.optString("dynamic", ""),

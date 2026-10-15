@@ -443,11 +443,13 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         color = ownerTextColor
         textSize = metrics.ownerTextSize
     }
-    private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFF6A11B.toInt()
+    // 官方推荐理由标签配色（对齐官方 App：暖橙深底 + 橙红字，无描边）
+    private val badgeAccentColor = 0xFFFF8024.toInt()
+    private val badgeFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x40FF8024
     }
     private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
+        color = badgeAccentColor
         textSize = metrics.badgeTextSize
         typeface = Typeface.DEFAULT_BOLD
     }
@@ -698,15 +700,60 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         }
     }
 
-    private fun drawLeadingBadge(canvas: Canvas, left: Float, centerY: Float): Float {
-        val badgeWidth = badgeTextPaint.measureText(ownerBadgeText) + metrics.px8 * 2
+    /** 官方「已关注」形态：圆形对勾图标 + 橙红文字，无底板。 */
+    private fun drawFollowedBadge(canvas: Canvas, left: Float, centerY: Float): Float {
+        val iconSize = badgeTextPaint.textSize
+        val iconTop = centerY - iconSize / 2f
+        val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = badgeAccentColor }
+        canvas.drawCircle(left + iconSize / 2f, centerY, iconSize / 2f, circlePaint)
+        // 白色对勾（圆内 0.5 倍尺寸居中）
+        val check = Path().apply {
+            val s = iconSize / 2f
+            moveTo(left + iconSize / 2f - s * 0.45f, centerY)
+            lineTo(left + iconSize / 2f - s * 0.1f, centerY + s * 0.35f)
+            lineTo(left + iconSize / 2f + s * 0.5f, centerY - s * 0.3f)
+        }
+        canvas.drawPath(
+            check,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = iconSize * 0.16f
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+                color = 0xFFFFFFFF.toInt()
+            }
+        )
+        val textX = left + iconSize + metrics.px4
+        val fm = badgeTextPaint.fontMetrics
+        canvas.drawText(FOLLOWED_LABEL, textX, centerY - (fm.top + fm.bottom) / 2f, badgeTextPaint)
+        return textX + badgeTextPaint.measureText(FOLLOWED_LABEL)
+    }
+
+    /** 官方推荐理由形态：深色半透明底 + 橙红描边 + 橙红字。 */
+    private fun drawOutlinedBadge(canvas: Canvas, text: String, left: Float, centerY: Float): Float {
+        val width = badgeTextPaint.measureText(text) + metrics.px8 * 2
         val height = badgeHeight()
         val top = centerY - height / 2f
-        badgeRect.set(left, top, left + badgeWidth, top + height)
-        canvas.drawRoundRect(badgeRect, metrics.badgeRadius.toFloat(), metrics.badgeRadius.toFloat(), badgePaint)
+        badgeRect.set(left, top, left + width, top + height)
+        canvas.drawRoundRect(badgeRect, metrics.badgeRadius.toFloat(), metrics.badgeRadius.toFloat(), badgeFillPaint)
         val fm = badgeTextPaint.fontMetrics
-        canvas.drawText(ownerBadgeText, left + metrics.px8, top + metrics.px3 - fm.top, badgeTextPaint)
-        return left + badgeWidth
+        canvas.drawText(text, left + metrics.px8, top + metrics.px3 - fm.top, badgeTextPaint)
+        return left + width
+    }
+
+    private fun drawLeadingBadge(canvas: Canvas, left: Float, centerY: Float): Float {
+        // badgeText 按 "|" 分段依次排布；「已关注」走图标+字无底板，其余走描边胶囊
+        var x = left
+        ownerBadgeText.split("|").forEach { segment ->
+            if (segment.isBlank()) return@forEach
+            if (x > left) x += metrics.px4
+            x = if (segment == FOLLOWED_LABEL) {
+                drawFollowedBadge(canvas, x, centerY)
+            } else {
+                drawOutlinedBadge(canvas, segment, x, centerY)
+            }
+        }
+        return x
     }
 
     private fun titleLines(width: Int): List<String> {
@@ -868,6 +915,9 @@ class VideoCardTextLayerView @JvmOverloads constructor(
 
     private companion object {
         private const val ELLIPSIS = "\u2026"
+
+        /** 与 VideoAdapter.badgeTextFor 的已关注文案保持一致（分段绘制的形态判定键）。 */
+        const val FOLLOWED_LABEL = "已关注"
     }
 }
 

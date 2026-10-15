@@ -29,6 +29,7 @@ import com.mytvb.R
 import com.mytvb.core.common.media.VideoCodecSupport
 import com.mytvb.core.common.update.ApkUpdater
 import com.mytvb.databinding.FragmentSettingsBinding
+import com.mytvb.feature.home.FeedSourceSetting
 import com.mytvb.model.SettingModel
 import com.mytvb.ui.adapter.SettingAdapter
 import com.mytvb.ui.adapter.SettingRow
@@ -87,6 +88,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
 
         private const val KEY_CACHE_LIMIT = "cache_limit"
         private const val KEY_DEFAULT_START_PAGE = "default_start_page"
+        // 与 FeedSourceSetting 同键（存储值「APP端/网页端」），首页推荐/热门数据来源
+        private const val KEY_HOME_FEED_SOURCE = FeedSourceSetting.KEY_HOME_FEED_SOURCE
+        private const val KEY_HOT_FEED_SOURCE = FeedSourceSetting.KEY_HOT_FEED_SOURCE
         private const val KEY_IMAGE_QUALITY = "image_quality"
         private const val KEY_THEME = "theme"
         private const val KEY_LIVE_ENTRY = "live_entry"
@@ -260,6 +264,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         commonGroups = listOf(
             SettingGroup(R.string.setting_group_browse, listOf(
                 stored(KEY_DEFAULT_START_PAGE, R.string.default_start_page, "热门"),
+                stored(KEY_HOME_FEED_SOURCE, R.string.home_feed_source, FeedSourceSetting.DEFAULT),
+                stored(KEY_HOT_FEED_SOURCE, R.string.hot_feed_source, FeedSourceSetting.DEFAULT),
                 stored(KEY_LIVE_ENTRY, R.string.live_entry, "关"),
                 stored(KEY_CCTV_LIVE_ENTRY, R.string.cctv_live, "关"),
                 stored(KEY_SHOW_VIDEO_DETAIL, R.string.show_video_detail_page, "关"),
@@ -586,6 +592,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         when (key) {
             // —— 通用·浏览与互动 ——
             KEY_DEFAULT_START_PAGE -> showCommonChoiceDialog(key, HOME_START_PAGE_OPTIONS)
+            KEY_HOME_FEED_SOURCE, KEY_HOT_FEED_SOURCE -> showCommonChoiceDialog(key, FeedSourceSetting.OPTIONS)
             KEY_LIVE_ENTRY -> toggle(key) {
                 appSettings.putStringAsync(key, it)
                 (activity as? MainActivity)?.applyLiveEntryVisibility()
@@ -1322,6 +1329,15 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         }
         applyStored(KEY_LIVE_ENTRY)
         applyStored(KEY_CCTV_LIVE_ENTRY)
+        applyStored(KEY_HOME_FEED_SOURCE)
+        applyStored(KEY_HOT_FEED_SOURCE)
+        // 旧版本存储值兜底：不属于当前选项集时回落默认
+        listOf(KEY_HOME_FEED_SOURCE to FeedSourceSetting.OPTIONS, KEY_HOT_FEED_SOURCE to FeedSourceSetting.OPTIONS)
+            .forEach { (key, options) ->
+                itemOf(key)?.let { item ->
+                    if (item.value !in options) setStored(key, FeedSourceSetting.DEFAULT)
+                }
+            }
         updateRiskControlStatus()
         applyStored(KEY_SHOW_VIDEO_DETAIL)
         applyStored(KEY_DOUYIN_MODE)

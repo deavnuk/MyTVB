@@ -15,24 +15,34 @@ class TvLoginInterceptor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        if (!request.url.encodedPath.contains("passport-tv-login")) {
-            return chain.proceed(request)
+        if (request.url.encodedPath.contains("passport-tv-login")) {
+            val buvid = deviceBuvidProvider()
+            val newRequest = request.newBuilder()
+                .header("Referer", "https://passport.bilibili.com/")
+                .header("Origin", "https://passport.bilibili.com")
+                .header("User-Agent", TV_LOGIN_USER_AGENT)
+                .header("buvid", buvid)
+                .header("env", "prod")
+                .header("app-key", "android_hd")
+                .header("x-bili-trace-id", "11111111111111111111111111111111:1111111111111111:0:0")
+                .header("x-bili-aurora-eid", "")
+                .header("x-bili-aurora-zone", "")
+                .header("bili-http-engine", "cronet")
+                .header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+                .build()
+            return chain.proceed(newRequest)
         }
-
-        val buvid = deviceBuvidProvider()
-        val newRequest = request.newBuilder()
-            .header("Referer", "https://passport.bilibili.com/")
-            .header("Origin", "https://passport.bilibili.com")
-            .header("User-Agent", TV_LOGIN_USER_AGENT)
-            .header("buvid", buvid)
-            .header("env", "prod")
-            .header("app-key", "android_hd")
-            .header("x-bili-trace-id", "11111111111111111111111111111111:1111111111111111:0:0")
-            .header("x-bili-aurora-eid", "")
-            .header("x-bili-aurora-zone", "")
-            .header("bili-http-engine", "cronet")
-            .header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
-            .build()
-        return chain.proceed(newRequest)
+        if (request.url.host == "app.bilibili.com" &&
+            (request.url.encodedPath.startsWith("/x/v2/feed") ||
+                request.url.encodedPath.startsWith("/x/v2/show/"))
+        ) {
+            // app 侧推荐流要求与 appkey 一致的 app UA，web UA 会被风控拒绝；
+            // HeaderInterceptor 在前已强设 web UA，这里覆盖回 android_hd
+            val newRequest = request.newBuilder()
+                .header("User-Agent", TV_LOGIN_USER_AGENT)
+                .build()
+            return chain.proceed(newRequest)
+        }
+        return chain.proceed(request)
     }
 }

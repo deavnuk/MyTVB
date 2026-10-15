@@ -13,7 +13,19 @@ data class TvPollData(
     @SerializedName("mid")
     val mid: Long = 0,
     @SerializedName("cookie_info")
-    val cookieInfo: TvCookieInfo? = null
+    val cookieInfo: TvCookieInfo? = null,
+    @SerializedName("token_info")
+    val tokenInfo: TvTokenInfo? = null
+)
+
+/** app 端 OAuth 凭据，配合 android_hd appkey 签名访问 app 侧接口（如 x/v2/feed/index 推荐流）。 */
+data class TvTokenInfo(
+    @SerializedName("access_token")
+    val accessToken: String = "",
+    @SerializedName("refresh_token")
+    val refreshToken: String = "",
+    @SerializedName("expires_in")
+    val expiresIn: Long = 0
 )
 
 data class TvCookieInfo(

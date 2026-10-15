@@ -12,6 +12,33 @@ import java.io.File
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.protobuf")
+}
+
+// ── B站 app 端 gRPC 接口（热门等），proto 在 src/main/proto，lite 模式控制体积 ──
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:3.25.5"
+    }
+    plugins {
+        create("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:1.72.0"
+        }
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+            }
+            task.plugins {
+                create("grpc") {
+                    option("lite")
+                }
+            }
+        }
+    }
 }
 
 abstract class FixSourceSetPathMapTask : DefaultTask() {
@@ -77,6 +104,18 @@ android {
             ndk {
                 abiFilters += listOf("arm64-v8a", "armeabi-v7a")
             }
+        }
+    }
+
+    sourceSets {
+        // protobuf-gradle-plugin 对 AGP+Kotlin 不自动挂生成源码，手动加入编译源集
+        getByName("debug") {
+            java.srcDir("build/generated/sources/proto/debug/java")
+            java.srcDir("build/generated/sources/proto/debug/grpc")
+        }
+        getByName("release") {
+            java.srcDir("build/generated/sources/proto/release/java")
+            java.srcDir("build/generated/sources/proto/release/grpc")
         }
     }
 
@@ -232,6 +271,12 @@ dependencies {
     // 在 Application 阶段后台异步 inflate activity_main，避免主线程 setContentView 走慢 inflate 路径。
     implementation("androidx.asynclayoutinflater:asynclayoutinflater:1.0.0")
     implementation("androidx.datastore:datastore-preferences:1.1.4")
+    // B站 app 端 gRPC（热门官方接口 grpc.biliapi.net），lite 版控制体积
+    implementation("io.grpc:grpc-okhttp:1.72.0")
+    implementation("io.grpc:grpc-protobuf-lite:1.72.0")
+    implementation("io.grpc:grpc-stub:1.72.0")
+    implementation("com.google.protobuf:protobuf-javalite:3.25.5")
+    implementation("javax.annotation:javax.annotation-api:1.3.2")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")

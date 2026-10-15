@@ -2,16 +2,20 @@ package com.mytvb.network.api
 
 import android.os.SystemClock
 import com.mytvb.model.live.LiveListWrapper
+import com.mytvb.model.video.Owner
+import com.mytvb.model.video.Stat
 import com.mytvb.model.video.VideoModel
 import com.mytvb.network.BiliClient
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.network.NetworkManager
 import com.mytvb.network.WbiGenerator
+import com.mytvb.network.security.AppSignUtils
 import org.json.JSONObject
 
 object BiliApi {
 
     private const val TAG = "BiliApi"
+    private const val SOURCE_APP_FEED = "APP_FEED"
 
     data class RecommendPageResult(
         val items: List<VideoModel>,
@@ -67,6 +71,102 @@ object BiliApi {
         val t2 = SystemClock.elapsedRealtime()
         AppLog.i(TAG, "recommendV8 total=${t2 - t0}ms parse=${t2 - t1}ms raw=${items.length()} result=${result.size}")
         return RecommendPageResult(result, rawCount = items.length(), source = "V8")
+    }
+
+    /**
+     * app 端推荐流（app.bilibili.com/x/v2/feed/index，android_hd appkey 签名 + access_key）。
+     * 与网页推荐池不同，内容按 app 账号个性化；接口不返回 bvid（param/uri 均为数字 aid），
+     * 用 AvToBv 本地换算补齐。idx=0 为刷新（pull=true），之后递增加载更多。
+     */
+    suspend fun appRecommend(idx: Int, accessKey: String, ps: Int): RecommendPageResult {
+        val t0 = SystemClock.elapsedRealtime()
+        val params = mapOf(
+            "access_key" to accessKey,
+            "appkey" to AppSignUtils.TV_APP_KEY,
+            "build" to "2001100",
+            "column" to "4",
+            "device" to "pad",
+            "flush" to "5",
+            "idx" to idx.coerceAtLeast(0).toString(),
+            "mobi_app" to "android_hd",
+            "platform" to "android",
+            "ps" to ps.toString(),
+            "pull" to if (idx <= 0) "true" else "false",
+            "ts" to AppSignUtils.getTimestamp().toString()
+        )
+        val signedParams = AppSignUtils.signForTvLogin(params)
+        val url = BiliClient.buildUrl(
+            path = "https://app.bilibili.com/x/v2/feed/index",
+            params = signedParams
+        )
+        AppLog.i(TAG, "appRecommend request idx=$idx ps=$ps")
+        val json = BiliClient.getJson(url)
+        val t1 = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "appRecommend response code=${json.optInt("code", -1)} msg=${json.optString("message", "")} net=${t1 - t0}ms")
+        BiliClient.checkResponse(json, "appRecommend")
+        val items = json.optJSONObject("data")?.optJSONArray("items")
+        if (items == null) {
+            AppLog.w(TAG, "appRecommend items is null, raw=${json.toString().take(200)}")
+            return RecommendPageResult(emptyList(), rawCount = 0, source = SOURCE_APP_FEED)
+        }
+        val result = (0 until items.length()).mapNotNull { i ->
+            runCatching { parseAppFeedItem(items.getJSONObject(i)) }
+                .onFailure { AppLog.w(TAG, "appRecommend parse item failed: ${it.message}") }
+                .getOrNull()
+        }
+        val t2 = SystemClock.elapsedRealtime()
+        AppLog.i(TAG, "appRecommend total=${t2 - t0}ms parse=${t2 - t1}ms raw=${items.length()} result=${result.size}")
+        return RecommendPageResult(result, rawCount = items.length(), source = SOURCE_APP_FEED)
+    }
+
+    /** app 推荐流条目 → VideoModel。只认 goto=av 的视频卡片，aid 缺失的条目丢弃。 */
+    private fun parseAppFeedItem(obj: JSONObject): VideoModel? {
+        if (obj.optString("goto") != "av") return null
+        val playerArgs = obj.optJSONObject("player_args")
+        val args = obj.optJSONObject("args")
+        val aid = (playerArgs?.optLong("aid", 0L) ?: 0L).takeIf { it > 0 }
+            ?: obj.optString("param").toLongOrNull()
+            ?: return null
+        val cover = obj.optString("cover", "")
+        return VideoModel(
+            aid = aid,
+            // 不做 AvToBv 本地换算：查表算法只覆盖 58^6≈3.8e10 以内的旧号段，
+            // 新视频 aid 已到 15 位，换算结果错误；bvid 留空走播放链的
+            // view?aid= 回退（超大 aid + cid 直连 playUrl）并由详情响应修正回真实 bvid
+            bvid = "",
+            title = obj.optString("title", ""),
+            pic = cover,
+            cover = cover,
+            duration = playerArgs?.optLong("duration", 0L) ?: obj.optLong("duration", 0L),
+            cid = playerArgs?.optLong("cid", 0L) ?: 0L,
+            owner = args?.let {
+                Owner(
+                    mid = it.optLong("up_id", 0L),
+                    name = it.optString("up_name", ""),
+                    face = it.optString("up_face", "")
+                )
+            },
+            stat = Stat(
+                view = parseAppCoverCountText(obj.optString("cover_left_text_1", "")),
+                danmaku = parseAppCoverCountText(obj.optString("cover_left_text_2", ""))
+            ),
+            typeName = args?.optString("tname", "")?.ifBlank { args.optString("rname", "") }.orEmpty(),
+            typeId = args?.optInt("tid", 0)?.takeIf { it > 0 } ?: args?.optInt("rid", 0) ?: 0,
+            // 不感兴趣等反馈接口需要（服务端据此定位推荐上下文）
+            trackId = obj.optString("track_id", ""),
+            goto = "av"
+        )
+    }
+
+    /** "12.3万"/"1.2亿"/"83" 形态的封面角标文本 → 数值。 */
+    private fun parseAppCoverCountText(text: String): Long {
+        val t = text.trim()
+        if (t.isEmpty()) return 0L
+        return when {
+            t.endsWith("万") -> ((t.removeSuffix("万").toDoubleOrNull() ?: 0.0) * 10_000).toLong()
+            t.endsWith("亿") -> ((t.removeSuffix("亿").toDoubleOrNull() ?: 0.0) * 100_000_000).toLong()
+            else -> t.toLongOrNull() ?: 0L
+        }
     }
 
     suspend fun recommend(freshIdx: Int, ps: Int): List<VideoModel> {

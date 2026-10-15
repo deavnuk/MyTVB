@@ -57,6 +57,10 @@
     <string name="default_audio_track">Default audio quality</string>
     <string name="default_play_speed">Default playback speed</string>
     <string name="default_start_page">Default home tab</string>
+    <string name="home_feed_source">Home feed source</string>
+    <string name="hot_feed_source">Popular source</string>
+    <string name="setting_value_source_app">App</string>
+    <string name="setting_value_source_web">Web</string>
     <string name="default_video_quality">Default quality</string>
     <string name="device_info">Device info</string>
     <string name="dm_allow_bottom">Show bottom danmaku</string>

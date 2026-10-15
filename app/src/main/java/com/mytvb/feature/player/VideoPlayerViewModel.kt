@@ -2172,10 +2172,16 @@ class VideoPlayerViewModel(
                 }
             }
         var detailResponse = apiService.getVideoDetail(currentAid, currentBvid)
-        // bvid 为空且 /view/detail 失败时，回退到 /view?aid= 接口
+        // bvid 为空且 /view/detail 失败时，用 /view?aid= 解析出真实 bvid 再重走全量 detail
+        // （app 推荐流的超大 aid detail 接口不认；view?aid= 的平铺响应只用来取 bvid）
         if (!detailResponse.isSuccess && currentBvid.isNullOrBlank() && (currentAid ?: 0L) > 0L) {
             AppLog.i(TAG, "loadUgcVideoInfo: /view/detail failed(${detailResponse.code}), fallback /view?aid=$currentAid")
-            detailResponse = apiService.getVideoDetailByAid(currentAid!!)
+            val resolvedBvid = apiService.getVideoDetailByAid(currentAid!!)
+                .data?.bvid?.takeIf { it.isNotBlank() }
+            if (resolvedBvid != null) {
+                currentBvid = resolvedBvid
+                detailResponse = apiService.getVideoDetail(currentAid, resolvedBvid)
+            }
         }
         if (!detailResponse.isSuccess || detailResponse.data == null) {
             // 移动端推荐视频: web API 无法识别超大 aid，但有有效 cid，跳过详情直接播放

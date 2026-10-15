@@ -92,11 +92,18 @@ class VideoRepository(
             if (first.isSuccess || bvid?.isNotBlank() == true) {
                 first
             } else {
-                // bvid 为空且 detail 接口失败时，用 /view?aid= 回退
+                // bvid 为空且 detail 接口失败时，用 /view?aid= 解析出真实 bvid，
+                // 再带 bvid 重走 view/detail 全量链（app 推荐流的超大 aid detail 接口不认）
                 val validAid = aid?.takeIf { it > 0L }
                 if (validAid != null) {
                     AppLog.i(TAG, "getVideoDetail: /view/detail failed(${first.code}), fallback /view?aid=$validAid")
-                    apiService.getVideoDetailByAid(validAid)
+                    val resolvedBvid = apiService.getVideoDetailByAid(validAid)
+                        .data?.bvid?.takeIf { it.isNotBlank() }
+                    if (resolvedBvid != null) {
+                        apiService.getVideoDetail(validAid, resolvedBvid)
+                    } else {
+                        first
+                    }
                 } else {
                     first
                 }

@@ -7,6 +7,7 @@ import com.mytvb.core.common.log.AppLog
 import com.mytvb.core.common.log.HomeVideoCardDebugLogger
 import com.mytvb.model.video.VideoModel
 import com.mytvb.network.api.BiliApi
+import com.mytvb.network.NetworkManager
 import com.mytvb.repository.cache.HomeCacheStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -141,7 +142,56 @@ class RecommendFeedRepository(
         freshIdx: Int,
         fetchRow: Int
     ): Result<NetworkPage> = runCatching {
-        loadWebFeedPage(page, pageSize, freshIdx, fetchRow)
+        loadAppFeedPageIfAvailable(pageSize, freshIdx, fetchRow)
+            ?: loadWebFeedPage(page, pageSize, freshIdx, fetchRow)
+    }
+
+    /**
+     * 已登录（有 app access_token）时优先走 app 端推荐流；接口失败或解析为空返回 null，
+     * 由调用方回退 web 流。app 流内容按 app 账号个性化，与 web 推荐池不同源。
+     */
+    private suspend fun loadAppFeedPageIfAvailable(
+        pageSize: Int,
+        freshIdx: Int,
+        fetchRow: Int
+    ): NetworkPage? {
+        if (!FeedSourceSetting.isAppSource(FeedSourceSetting.KEY_HOME_FEED_SOURCE)) {
+            AppLog.i(TAG, "appFeed disabled by setting, use web feed")
+            return null
+        }
+        val accessKey = NetworkManager.getAppAccessToken()
+        if (accessKey.isBlank()) {
+            AppLog.i(TAG, "appFeed skip: no access_token, use web feed")
+            return null
+        }
+        // app 流 idx 从 0 计（0=刷新），web freshIdx 从 1 计
+        val idx = (freshIdx - 1).coerceAtLeast(0)
+        return try {
+            val t0 = SystemClock.elapsedRealtime()
+            val result = BiliApi.appRecommend(idx = idx, accessKey = accessKey, ps = pageSize)
+            val filtered = result.items.filter { it.isSupportedHomeVideoCard }
+            if (filtered.isEmpty()) {
+                AppLog.w(TAG, "appFeed empty raw=${result.rawCount}, fallback web")
+                null
+            } else {
+                AppLog.i(
+                    TAG,
+                    "appFeed ok idx=$idx raw=${result.rawCount} filtered=${filtered.size} elapsed=${SystemClock.elapsedRealtime() - t0}ms"
+                )
+                NetworkPage(
+                    items = filtered,
+                    hasMore = true,
+                    rawCount = result.rawCount,
+                    requestFreshIdx = freshIdx,
+                    requestFetchRow = fetchRow,
+                    source = result.source
+                )
+            }
+        } catch (throwable: Throwable) {
+            if (throwable is kotlinx.coroutines.CancellationException) throw throwable
+            AppLog.w(TAG, "appFeed failed: ${throwable.message}, fallback web")
+            null
+        }
     }
 
     /**

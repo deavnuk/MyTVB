@@ -39,6 +39,9 @@ private fun settingLabelRes(stored: String): Int = when (stored) {
     "番剧" -> R.string.animation
     "影视" -> R.string.film_and_television
     "动态" -> R.string.dynamic
+    // 数据来源（首页推荐/热门）
+    "APP端" -> R.string.setting_value_source_app
+    "网页端" -> R.string.setting_value_source_web
     // 图片质量
     "低尺寸" -> R.string.setting_value_image_low
     "中尺寸" -> R.string.setting_value_image_medium

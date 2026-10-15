@@ -34,6 +34,9 @@ object NetworkManager {
     private const val KEY_CURRENT_UA = "currentUA"
     private const val AUTH_INVALID_CODE = -101
     private const val KEY_REFRESH_TOKEN = "bili_refresh_token"
+    private const val KEY_APP_ACCESS_TOKEN = "app_access_token"
+    private const val KEY_APP_REFRESH_TOKEN = "app_refresh_token"
+    private const val KEY_APP_TOKEN_EXPIRES_AT = "app_token_expires_at"
     private const val KEY_HTTP_CACHE_SCHEMA = "http_cache_schema"
     /** 修改 HTTP 协商缓存结构时递增此值，可以在用户下次冷启动时一次性清空旧缓存。*/
     private const val HTTP_CACHE_SCHEMA = 1
@@ -313,6 +316,7 @@ object NetworkManager {
         if (clearCookies) {
             internalCookieManager.clearCookies()
             clearRefreshToken()
+            clearAppToken()
         }
         securityCoordinator.resetRuntimeState()
     }
@@ -339,6 +343,48 @@ object NetworkManager {
 
     fun clearWebRefreshToken() {
         clearRefreshToken()
+    }
+
+    /**
+     * app 端 access_token（TV 扫码登录的 token_info 下发），过期或缺失返回空串。
+     * 供 app 侧接口（x/v2/feed/index 等）作为 access_key 使用。
+     */
+    fun getAppAccessToken(): String {
+        return runCatching {
+            val store = KoinPlatform.getKoin().get<AppSettingsDataStore>()
+            val expiresAt = store.getCachedLong(KEY_APP_TOKEN_EXPIRES_AT)
+            if (expiresAt in 1 until System.currentTimeMillis()) {
+                AppLog.i(TAG, "app access_token expired at $expiresAt, ignore")
+                ""
+            } else {
+                store.getCachedString(KEY_APP_ACCESS_TOKEN).orEmpty()
+            }
+        }.getOrNull().orEmpty()
+    }
+
+    fun saveAppToken(accessToken: String, refreshToken: String, expiresInSec: Long) {
+        runCatching {
+            val store = KoinPlatform.getKoin().get<AppSettingsDataStore>()
+            // 留 1 天提前量，避免拿临界有效 token 打请求
+            val usableMs = (expiresInSec - 24L * 60 * 60) * 1000
+            store.putStringAsync(KEY_APP_ACCESS_TOKEN, accessToken)
+            store.putStringAsync(KEY_APP_REFRESH_TOKEN, refreshToken)
+            store.putLongAsync(
+                KEY_APP_TOKEN_EXPIRES_AT,
+                if (usableMs > 0) System.currentTimeMillis() + usableMs else 0L
+            )
+        }.onFailure {
+            AppLog.e(TAG, "saveAppToken failed: ${it.message}")
+        }
+    }
+
+    private fun clearAppToken() {
+        runCatching {
+            val store = KoinPlatform.getKoin().get<AppSettingsDataStore>()
+            store.putStringAsync(KEY_APP_ACCESS_TOKEN, null)
+            store.putStringAsync(KEY_APP_REFRESH_TOKEN, null)
+            store.putLongAsync(KEY_APP_TOKEN_EXPIRES_AT, 0L)
+        }
     }
 
     suspend fun activateAfterLogin() {

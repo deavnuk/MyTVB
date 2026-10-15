@@ -154,6 +154,11 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                     }
                     // TV 登录不产生 web refresh_token，清空防止后续刷新用无效 token
                     NetworkManager.clearWebRefreshToken()
+                    // app 端 OAuth 凭据持久化，供 app 推荐流等 app 侧接口使用
+                    pollData.tokenInfo
+                        ?.takeIf { it.accessToken.isNotBlank() }
+                        ?.let { NetworkManager.saveAppToken(it.accessToken, it.refreshToken, it.expiresIn) }
+                        ?: AppLog.w("SignInFragment", "TV poll success but token_info missing, app feed unavailable")
                     AppToast.show(requireContext(), "登录成功")
                     onLoginSuccess()
                 }

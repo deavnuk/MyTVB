@@ -78,7 +78,10 @@ class VideoCardMenuDialog(
         video.historyRecordKid.isNotBlank()
     // UP 主信息是否就绪：owner 缺失或 mid<=0 时（如关注/动态页扁平结构未带 owner），
     // “UP主主页”不可跳转、“不感兴趣UP”也无法生效，统一由此字段兜底显隐与可用性。
-    private val supportsUpSpace = video.owner?.let { it.mid > 0L } == true
+    // 例外：app 端卡片（gRPC 热门 / feed/index 推荐，特征为 aid-only 无 bvid）服务端
+    // 不下发 UP mid，但 aid 可查——放开显示，点击时经 view?aid= 懒解析补齐再跳转。
+    private val supportsUpSpace = video.owner?.let { it.mid > 0L } == true ||
+        (video.aid > 0L && video.bvid.isBlank())
     // 直播卡片无 aid，收藏接口必失败，直接隐藏收藏入口
     private val supportsFavorite = !isLiveFeedbackCard
     // 「不感兴趣当前直播」对直播价值很小（主播和分区两个维度已覆盖），直播卡片隐藏
@@ -157,25 +160,27 @@ class VideoCardMenuDialog(
         }
 
         binding.buttonUpSpace.setOnClickListener {
-            val owner = video.owner
-            if (owner == null || owner.mid <= 0L) {
-                toast(context.getString(R.string.dialog_up_info_not_loaded))
-                return@setOnClickListener
-            }
-            dismiss()
-            OwnerDetailDialog(
-                context = context,
-                owner = owner,
-                onPlayVideo = { v, playQueue ->
-                    VideoRouteNavigator.openVideo(
+            scope.launch {
+                val owner = resolveOwner()
+                if (owner == null) {
+                    toast(context.getString(R.string.dialog_up_info_not_loaded))
+                } else {
+                    dismiss()
+                    OwnerDetailDialog(
                         context = context,
-                        video = v,
-                        playQueue = playQueue
-                    )
-                },
-                currentAid = video.aid,
-                currentVideoId = video.bvid
-            ).show()
+                        owner = owner,
+                        onPlayVideo = { v, playQueue ->
+                            VideoRouteNavigator.openVideo(
+                                context = context,
+                                video = v,
+                                playQueue = playQueue
+                            )
+                        },
+                        currentAid = video.aid,
+                        currentVideoId = video.bvid
+                    ).show()
+                }
+            }
         }
 
         binding.buttonFavorite.setOnClickListener {
@@ -216,6 +221,24 @@ class VideoCardMenuDialog(
             onDislikeArea?.invoke(areaName)
             dismiss()
         }
+    }
+
+    /** 懒解析缓存：app 端 aid-only 卡片的 UP mid 同一次菜单会话只查一次。 */
+    @Volatile
+    private var lazyResolvedOwner: com.mytvb.model.video.Owner? = null
+
+    /**
+     * 获取卡片 UP 信息：owner.mid 已有直接用；缺失（app 端 gRPC 热门/feed 推荐卡片
+     * 服务端不下发）时经 view?aid= 详情懒解析，一次 ~100ms 的按需请求。
+     */
+    private suspend fun resolveOwner(): com.mytvb.model.video.Owner? {
+        video.owner?.takeIf { it.mid > 0L }?.let { return it }
+        if (video.aid <= 0L) return null
+        if (lazyResolvedOwner != null) return lazyResolvedOwner
+        lazyResolvedOwner = runCatching {
+            videoRepository.getVideoDetail(video.aid, video.bvid.takeIf { it.isNotBlank() })
+        }.getOrNull()?.data?.view?.owner?.takeIf { it.mid > 0L }
+        return lazyResolvedOwner
     }
 
     private fun dislikeVideo(reasonId: Int) {

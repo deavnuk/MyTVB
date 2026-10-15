@@ -177,10 +177,11 @@ interface ApiService {
         @Query("bvid") bvid: String?
     ): BaseResponse<VideoDetailModel>
 
+    /** x/web-interface/view 的 data 是平铺视频对象（非 view/detail 的 View 嵌套），用 VideoView 解析。 */
     @GET("x/web-interface/view")
     suspend fun getVideoDetailByAid(
         @Query("aid") aid: Long
-    ): BaseResponse<VideoDetailModel>
+    ): BaseResponse<com.mytvb.model.video.detail.VideoView>
 
     @GET("x/player/pagelist")
     suspend fun getVideoPv(

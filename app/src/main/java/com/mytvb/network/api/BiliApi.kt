@@ -122,6 +122,9 @@ object BiliApi {
     /** app 推荐流条目 → VideoModel。只认 goto=av 的视频卡片，aid 缺失的条目丢弃。 */
     private fun parseAppFeedItem(obj: JSONObject): VideoModel? {
         if (obj.optString("goto") != "av") return null
+        // 广告卡片官方也以 goto=av 下发，靠顶层 ad_info（creative_content 为推广素材）区分，
+        // 卡面与正常视频无异；不滤会混进推荐流（2026-10-16 实测 20 条中 3 条）
+        if (obj.has("ad_info")) return null
         val playerArgs = obj.optJSONObject("player_args")
         val args = obj.optJSONObject("args")
         val aid = (playerArgs?.optLong("aid", 0L) ?: 0L).takeIf { it > 0 }

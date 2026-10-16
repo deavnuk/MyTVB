@@ -56,7 +56,15 @@ internal object CdnLatencyProfile {
 
     fun sortUrlsByLatency(urls: List<String>): List<String> {
         if (urls.size <= 1) return urls
-        return urls.sortedWith(compareBy({ cdnPreference(it) }, { averageTtfbMs(it) }))
+        // 健康分开关关闭（或无记录）时全部候选同分 1000，自然退化为纯 TTFB 口径。
+        val useHealthScore = CdnHealthProfile.isEnabled()
+        return urls.sortedWith(
+            compareBy(
+                { cdnPreference(it) },
+                { if (useHealthScore) -CdnHealthProfile.healthScore(it) else 0L },
+                { averageTtfbMs(it) }
+            )
+        )
     }
 
     private fun cdnPreference(url: String): Int {

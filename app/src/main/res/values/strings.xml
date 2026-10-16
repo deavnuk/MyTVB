@@ -434,6 +434,7 @@
     <string name="codec_info_system_format">系统：Android %1$s（SDK %2$d）</string>
     <string name="codec_info_default_codec_format">默认视频编码：%1$s</string>
     <string name="ipv4_only">仅使用IPv4</string>
+    <string name="cdn_health_routing">CDN智能选线</string>
     <string name="douyin_mode">上下滑切换视频</string>
     <string name="video_info">视频信息</string>
     <string name="video_order">视频排序</string>

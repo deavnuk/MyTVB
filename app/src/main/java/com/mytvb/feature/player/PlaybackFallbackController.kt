@@ -153,6 +153,16 @@ internal class PlaybackFallbackController(
 
         val errorType = classifyPlaybackError(error)
         val isDash = dashSession != null && context.useDashPlayback
+        // CDN 健康分：网络/未知类错误多半与线路相关，对当前 host 记一次播放错误
+        // （DECODER 类是解码问题，不是 CDN 的锅，不记）。换线重建前记，
+        // 让重建用的候选排序和下次播放都能避开该 host。
+        if (errorType != PlaybackErrorType.DECODER) {
+            context.cdnStates.forEach { state ->
+                state.currentHostUrl()?.let { url ->
+                    CdnHealthProfile.recordEvent(url, CdnHealthProfile.CdnHealthEvent.PLAYBACK_ERROR)
+                }
+            }
+        }
 
         val handled = when (errorType) {
             PlaybackErrorType.DECODER -> {
@@ -200,6 +210,24 @@ internal class PlaybackFallbackController(
                 tryRefreshPlayInfo(reason = "stall_${stalledMs}ms_refresh") ||
                 trySwitchCodec(lastPlaybackPositionMs, reason = "stall_${stalledMs}ms_codec_switch")
         return handled
+    }
+
+    /**
+     * 首帧看门狗超时入口：起播阶段长期未出首帧。stall 检测只覆盖 READY 之后的卡顿，
+     * 起播 BUFFERING 卡死原本要等 read 超时（约 15s）才走 onPlayerError 错误链，
+     * 此处把救援提前到 2.5s。对当前 host 记 FIRST_FRAME_TIMEOUT 后立即换线：
+     * 起播慢不该先切 AVC，优先同档换线，不行再刷新 playurl（签名去重与
+     * [MAX_FALLBACK_ATTEMPTS] 上限照常生效）。两条路都失败则放回原链兜底。
+     */
+    fun handleFirstFrameTimeout(positionMs: Long): Boolean {
+        lastPlaybackPositionMs = positionMs.coerceAtLeast(0L)
+        context.cdnStates.forEach { state ->
+            state.currentHostUrl()?.let { url ->
+                CdnHealthProfile.recordEvent(url, CdnHealthProfile.CdnHealthEvent.FIRST_FRAME_TIMEOUT)
+            }
+        }
+        return tryNextCdnInCurrentCodec(lastPlaybackPositionMs, reason = "first_frame_timeout") ||
+            tryRefreshPlayInfo(reason = "first_frame_timeout_refresh")
     }
 
     /** 切集/重置入口：清空所有 fallback 状态。 */

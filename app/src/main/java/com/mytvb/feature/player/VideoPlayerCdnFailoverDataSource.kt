@@ -27,6 +27,12 @@ internal class VideoPlayerCdnFailoverState(
         preferredIndex = index.coerceIn(0, lastIndex)
     }
 
+    /** 当前实际使用的候选 URL（open 成功后由 markPreferred 持续更新），供健康事件回流取 host。 */
+    @Synchronized
+    fun currentHostUrl(): String? {
+        return candidates.getOrNull(preferredIndex())?.toString()
+    }
+
     @Synchronized
     fun nextDiagnosticOpenCount(): Int = ++diagnosticOpenCount
 

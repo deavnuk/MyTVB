@@ -198,7 +198,8 @@ fun TabLayout.enableDirectTabNavigation(
             val tabView = tabStrip.getChildAt(index)
             tabView.isClickable = true
             tabView.isFocusable = true
-            tabView.isFocusableInTouchMode = true
+            // 勿设 focusableInTouchMode：触摸模式下首次 tap 会只聚焦不点击（点两次才能切换 tab）；
+            // 遥控方向键按下时系统自动退出 touch mode，isFocusable 已足够支撑焦点导航
             suppressLongPressTooltip(tabView)
             applyTabBackground(tabView)
             bindTabTouchTextColor(tabView)

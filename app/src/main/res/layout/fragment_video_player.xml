@@ -190,4 +190,13 @@
         android:layout_width="match_parent"
         android:layout_height="@dimen/px4"
         android:visibility="gone"/>
+    <!-- 控制栏隐藏时常驻的章节分段进度条（官方 TV 版形态）：按章节比例分段，
+         触摸点击某段跳该章起点；View 全高(px60)均为触摸命中区，可见条只占底部 px7；
+         章节开关开启且有章节时显示并抑制细进度条 -->
+    <com.mytvb.feature.player.viewpoint.ChapterSegmentBarView
+        android:layout_gravity="bottom"
+        android:id="@+id/chapter_segment_bar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/px60"
+        android:visibility="gone"/>
 </FrameLayout>

@@ -40,4 +40,8 @@ class SlimTimelineRenderer(
     fun setSponsorDuration(durationMs: Long) {
         markerView.setSponsorDuration(durationMs)
     }
+
+    fun setChapterStarts(startsMs: List<Long>, durationMs: Long) {
+        markerView.setChapterStarts(startsMs, durationMs)
+    }
 }

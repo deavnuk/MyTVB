@@ -52,6 +52,7 @@ import com.mytvb.feature.player.view.OnPlayerSettingChange
 import com.mytvb.feature.player.view.OnVideoSettingChangeListener
 import com.mytvb.feature.player.view.DouyinModeKeyListener
 import com.mytvb.feature.player.view.DouyinModePreview
+import com.mytvb.feature.player.viewpoint.ChapterSegmentBarView
 import com.mytvb.feature.player.viewpoint.ViewPointSegments
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.core.lifecycle.AppBackgroundMonitor
@@ -140,6 +141,7 @@ class VideoPlayerFragment : Fragment() {
 
     private lateinit var playerView: MyPlayerView
     private lateinit var bottomProgressBar: SponsorProgressMarkerView
+    private lateinit var chapterSegmentBar: ChapterSegmentBarView
     private lateinit var textSubtitle: TextView
     private lateinit var viewOnlineWatching: View
     private lateinit var textOnlineWatching: TextView
@@ -529,6 +531,11 @@ class VideoPlayerFragment : Fragment() {
         }
         bottomProgressBar = binding.bottomProgressBar
         slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar)
+        chapterSegmentBar = binding.chapterSegmentBar
+        chapterSegmentBar.setOnSegmentClickListener { targetMs ->
+            player?.seekTo(targetMs)
+            viewModel.sponsorUserSeek(targetMs)
+        }
         textSubtitle = binding.textSubtitle
         // 字幕有独立字号设置，不与 UI 文字缩放叠加
         ScaledTextView.exempt(textSubtitle)
@@ -910,6 +917,7 @@ class VideoPlayerFragment : Fragment() {
         playerView.onUserSeekListener = { positionMs ->
             viewModel.sponsorUserSeek(positionMs)
         }
+        playerView.onChapterPanelRequestListener = { showChapterDialog() }
 
         backgroundListener = object : AppBackgroundMonitor.BackgroundStateListener {
             override fun onAppBackgroundStateChanged(isInBackground: Boolean) {
@@ -1483,6 +1491,19 @@ class VideoPlayerFragment : Fragment() {
             return
         }
         refreshAmbientSlimTimelineState()
+        // 章节分段条接管：控制栏隐藏且有章节时显示，抑制常驻细进度条（互斥）
+        val chapterBarActive = ::chapterSegmentBar.isInitialized &&
+            chapterSegmentBar.hasSegments() &&
+            latestControllerVisibility == View.GONE
+        if (chapterBarActive) {
+            slimTimelineRenderer.hide()
+            chapterSegmentBar.isVisible = true
+            chapterSegmentBar.setProgress(latestPlaybackPositionMs, latestPlaybackDurationMs)
+            return
+        }
+        if (::chapterSegmentBar.isInitialized) {
+            chapterSegmentBar.isVisible = false
+        }
         val shouldShow = ::playerSettings.isInitialized && PlayerScreenLogic.shouldShowSlimTimeline(
             showBottomProgressBar = playerSettings.showBottomProgressBar,
             controllerVisibility = latestControllerVisibility,
@@ -1627,17 +1648,26 @@ class VideoPlayerFragment : Fragment() {
     }
 
     /**
-     * 章节（view_points）应用到播放器：按当前时长归一化后驱动进度条高亮、
-     * 章节按钮显隐、当前章节名与常驻细条的章节起点标记。
+     * 章节（view_points）应用到播放器：受「章节进度条」设置开关控制（默认关），
+     * 按当前时长归一化后驱动进度条高亮、章节条显隐、当前章节名与常驻细条的章节起点标记。
      * duration 晚于章节数据到达时由 duration collect 重算。
      */
     private fun applyViewPoints(points: List<ViewPoint>) {
+        val enabled = PlayerSettingsStore.load(requireContext()).showChapterBar
         val durationMs = viewModel.duration.value
-        val segments = ViewPointSegments.normalize(points, durationMs)
+        val segments = if (enabled) ViewPointSegments.normalize(points, durationMs) else emptyList()
+        AppLog.d(
+            TAG,
+            "viewpoints_trace ui_apply enabled=$enabled points=${points.size} duration=$durationMs segments=${segments.size}"
+        )
         playerView.setViewPointSegments(segments)
         playerView.setViewPointDuration(durationMs)
         if (::slimTimelineRenderer.isInitialized) {
             slimTimelineRenderer.setChapterStarts(segments.map { it.fromMs }, durationMs)
+        }
+        if (::chapterSegmentBar.isInitialized) {
+            chapterSegmentBar.setSegments(segments, durationMs)
+            renderBottomProgressBar()
         }
     }
 

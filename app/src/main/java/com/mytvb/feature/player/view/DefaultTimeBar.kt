@@ -22,6 +22,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.TimeBar
 import com.mytvb.R
 import com.mytvb.feature.player.sponsor.SponsorSegment
+import com.mytvb.feature.player.viewpoint.NormalizedViewPointSegment
 import java.util.Formatter
 import java.util.Locale
 import java.util.Collections
@@ -37,6 +38,10 @@ class DefaultTimeBar @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr), TimeBar {
 
     companion object {
+        /** 章节分段底色：B 站粉 60%。 */
+        private const val VIEW_POINT_SEGMENT_COLOR = 0x99FB7299.toInt()
+        /** 章节起点竖线：白 70%。 */
+        private const val VIEW_POINT_MARKER_COLOR = 0xB3FFFFFF.toInt()
     }
 
     private val listeners = CopyOnWriteArraySet<TimeBar.OnScrubListener>()
@@ -61,6 +66,9 @@ class DefaultTimeBar @JvmOverloads constructor(
     private val sponsorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var sponsorSegments: List<SponsorSegment> = emptyList()
     private var sponsorDurationMs: Long = 0L
+    private val viewPointPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var viewPointSegments: List<NormalizedViewPointSegment> = emptyList()
+    private var viewPointDurationMs: Long = 0L
 
     private val scrubberDrawable: Drawable?
     private val scrubberPadding: Int
@@ -332,6 +340,31 @@ class DefaultTimeBar @JvmOverloads constructor(
 
         if (drawnPosition.width() > 0) {
             canvas.drawRect(drawnPosition, playedPaint)
+        }
+
+        // 章节（view_points）分段：played 之上叠 B 站粉半透明块 + 章节起点白竖线，
+        // 与 sponsor 彩色块（画在其后、层级更高）形成区分。
+        if (viewPointSegments.isNotEmpty() && viewPointDurationMs > 0L) {
+            viewPointPaint.color = VIEW_POINT_SEGMENT_COLOR
+            for (segment in viewPointSegments) {
+                val startRatio = segment.fromMs.toFloat() / viewPointDurationMs
+                val endRatio = segment.toMs.toFloat() / viewPointDurationMs
+                val left = barLeft + (barWidth * startRatio)
+                val right = barLeft + (barWidth * endRatio)
+                canvas.drawRect(left, drawnBarTop.toFloat(), right, drawnBarBottom.toFloat(), viewPointPaint)
+            }
+            viewPointPaint.color = VIEW_POINT_MARKER_COLOR
+            val markerHalfHeight = (barHeight / 2 + dpToPx(3)).toFloat()
+            val markerCenterY = (barTop + barBottom) / 2f
+            for (segment in viewPointSegments) {
+                if (segment.fromMs <= 0L) continue
+                val markerX = barLeft + (barWidth * segment.fromMs.toFloat() / viewPointDurationMs)
+                canvas.drawRect(
+                    markerX - dpToPx(1), markerCenterY - markerHalfHeight,
+                    markerX + dpToPx(1), markerCenterY + markerHalfHeight,
+                    viewPointPaint
+                )
+            }
         }
 
         // 空降助手标记：在进度之上、进度条头之下绘制
@@ -717,6 +750,16 @@ class DefaultTimeBar @JvmOverloads constructor(
 
     fun setSponsorDuration(durationMs: Long) {
         sponsorDurationMs = durationMs
+        invalidate()
+    }
+
+    fun setViewPointSegments(segments: List<NormalizedViewPointSegment>) {
+        viewPointSegments = segments
+        invalidate()
+    }
+
+    fun setViewPointDuration(durationMs: Long) {
+        viewPointDurationMs = durationMs
         invalidate()
     }
 }

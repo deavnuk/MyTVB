@@ -3257,6 +3257,7 @@ class VideoPlayerViewModel(
             _videoSnapshot.value = null
             return
         }
+        AppLog.d(TAG, "viewpoints_trace extras_begin cid=$cid aid=$currentAid bvid=$currentBvid")
 
         viewModelScope.launch {
             val aid = currentAid
@@ -3376,6 +3377,11 @@ class VideoPlayerViewModel(
                     danmakuController.applyDmMask(null)
                 }
                 _viewPoints.value = wrapper.viewPoints.orEmpty()
+                AppLog.i(
+                    TAG,
+                    "viewpoints_trace applied cid=$cid vpCount=${wrapper.viewPoints?.size ?: -1} " +
+                        "first=${wrapper.viewPoints?.firstOrNull()?.let { "${it.fromMs}-${it.toMs}ms ${it.content}" }}"
+                )
             } ?: AppLog.e(TAG, "loadPlayerExtras failed: cid=$cid")
 
             val snapshot = snapshotDeferred.await()

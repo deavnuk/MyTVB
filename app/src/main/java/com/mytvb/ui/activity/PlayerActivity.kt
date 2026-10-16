@@ -41,6 +41,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mytvb.R
 import com.mytvb.core.common.content.ContentFilter
 import com.mytvb.core.common.log.AppLog
+import com.mytvb.feature.player.viewpoint.ChapterSegmentBarView
+import com.mytvb.feature.player.viewpoint.ViewPointSegments
 import com.mytvb.core.ui.base.BaseActivity
 import com.mytvb.core.ui.base.ScaledTextView
 import com.mytvb.core.ui.system.ViewUtils
@@ -71,6 +73,7 @@ import com.mytvb.feature.player.view.DouyinModePreview
 import com.mytvb.feature.player.view.MyPlayerView
 import com.mytvb.feature.player.view.OnPlayerSettingChange
 import com.mytvb.feature.player.view.OnVideoSettingChangeListener
+import com.mytvb.model.player.ViewPoint
 import com.mytvb.model.video.VideoModel
 import com.mytvb.model.video.detail.VideoDetailModel
 import com.mytvb.model.video.quality.AudioQuality
@@ -256,6 +259,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private lateinit var playerView: MyPlayerView
     private lateinit var bottomProgressBar: SponsorProgressMarkerView
+    private lateinit var chapterSegmentBar: ChapterSegmentBarView
     private lateinit var textSubtitle: TextView
     private lateinit var viewOnlineWatching: View
     private lateinit var textOnlineWatching: TextView
@@ -358,7 +362,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private val progressCoordinator = VideoPlayerProgressCoordinator(
         playerProvider = { player },
-        publishProgressStateProvider = { bottomProgressBar.isVisible },
+        // 常驻进度显示（细条或章节分段条）任一可见时才高频发布位置状态（节流）；
+        // 章节条接管时细条被抑制，必须把章节条算进来，否则进度推送停摆、条冻结在首帧。
+        publishProgressStateProvider = {
+            bottomProgressBar.isVisible || (::chapterSegmentBar.isInitialized && chapterSegmentBar.isVisible)
+        },
         onProgressPublished = { positionMs, durationMs, publishProgressState ->
             viewModel.updatePlaybackPosition(positionMs, durationMs, publishProgressState)
             // 空降静音片段到点恢复（独立于 publish 节奏，每轮 500ms 检查）
@@ -773,6 +781,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         }
         bottomProgressBar = binding.bottomProgressBar
         slimTimelineRenderer = SlimTimelineRenderer(bottomProgressBar)
+        chapterSegmentBar = binding.chapterSegmentBar
+        chapterSegmentBar.setOnSegmentClickListener { targetMs ->
+            player?.seekTo(targetMs)
+            viewModel.sponsorUserSeek(targetMs)
+        }
         textSubtitle = binding.textSubtitle
         // 字幕有独立字号设置，不与 UI 文字缩放叠加
         ScaledTextView.exempt(textSubtitle)
@@ -1029,7 +1042,12 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 }
                 // 控制器进度条已处理 preview 时，不更新细进度条，避免 hide/show 互相打架
                 if (!controllerHandling && ::slimTimelineRenderer.isInitialized) {
-                    slimTimelineRenderer.showPreview(targetMs, durationMs)
+                    if (::chapterSegmentBar.isInitialized && chapterSegmentBar.isVisible) {
+                        // 章节分段条接管常驻条：盲操 seek 预览位置画在分段条上
+                        chapterSegmentBar.setProgress(targetMs, durationMs)
+                    } else {
+                        slimTimelineRenderer.showPreview(targetMs, durationMs)
+                    }
                 }
             },
             danmakuSync = { positionMs -> playerView.syncDanmakuPosition(positionMs, forceSeek = true) },
@@ -1097,6 +1115,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             override fun onNext() { viewModel.playNext() }
             override fun onClose() { finish() }
             override fun onChooseEpisode() { showChooseEpisodeDialog() }
+            override fun onChapterClick() { showChapterDialog() }
             override fun onRelated() { showRelatedPanel() }
             override fun onUpInfo() { showOwnerDetailDialog() }
             override fun onMore() { showPlayerActionDialog() }
@@ -1123,6 +1142,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         playerView.onUserSeekListener = { positionMs ->
             viewModel.sponsorUserSeek(positionMs)
         }
+        playerView.onChapterPanelRequestListener = { showChapterDialog() }
         renderControllerChrome(View.GONE)
     }
 
@@ -1547,6 +1567,16 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             }
         }
         lifecycleScope.launch {
+            viewModel.viewPoints.collect { points ->
+                applyViewPoints(points)
+            }
+        }
+        lifecycleScope.launch {
+            viewModel.duration.collect { _ ->
+                applyViewPoints(viewModel.viewPoints.value)
+            }
+        }
+        lifecycleScope.launch {
             viewModel.duration.collect { durationMs ->
                 playerView.setSponsorDuration(durationMs)
                 if (::slimTimelineRenderer.isInitialized) {
@@ -1884,9 +1914,14 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             lastOnlineWatchingShown = show
             AppLog.d(TAG, "online_watching render text=$text visibility=$latestControllerVisibility show=$show")
         }
-        // 有常驻细进度条时抬到进度条上方一点点；无进度条时贴底（对齐官方无条时的高度）。
+        // 有常驻细进度条/章节分段条时抬到进度条上方一点点；无进度条时贴底（对齐官方无条时的高度）。
         val slimBarVisible = ::bottomProgressBar.isInitialized && bottomProgressBar.isVisible
-        val marginRes = if (slimBarVisible) R.dimen.px7 else R.dimen.px3
+        val chapterBarActive = ::chapterSegmentBar.isInitialized && chapterSegmentBar.isVisible
+        val marginRes = when {
+            chapterBarActive -> R.dimen.px10
+            slimBarVisible -> R.dimen.px7
+            else -> R.dimen.px3
+        }
         (viewOnlineWatching.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
             val targetMargin = resources.getDimensionPixelSize(marginRes)
             if (params.bottomMargin != targetMargin) {
@@ -1906,15 +1941,27 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             return
         }
         refreshAmbientSlimTimelineState()
-        val shouldShow = ::playerSettings.isInitialized && PlayerScreenLogic.shouldShowSlimTimeline(
-            showBottomProgressBar = playerSettings.showBottomProgressBar,
-            controllerVisibility = latestControllerVisibility,
-            coordinator = uiCoordinator
-        )
-        if (shouldShow) {
-            slimTimelineRenderer.show(latestPlaybackPositionMs, latestPlaybackDurationMs)
-        } else {
+        // 章节分段条接管：控制栏隐藏且有章节时显示（官方 TV 版形态），
+        // 此时抑制常驻细进度条（两者同为常驻条，互斥，即使细条设置开着）。
+        val chapterBarActive = ::chapterSegmentBar.isInitialized &&
+            chapterSegmentBar.hasSegments() &&
+            latestControllerVisibility == View.GONE
+        if (chapterBarActive) {
             slimTimelineRenderer.hide()
+            chapterSegmentBar.isVisible = true
+            chapterSegmentBar.setProgress(latestPlaybackPositionMs, latestPlaybackDurationMs)
+        } else {
+            chapterSegmentBar.isVisible = false
+            val shouldShow = ::playerSettings.isInitialized && PlayerScreenLogic.shouldShowSlimTimeline(
+                showBottomProgressBar = playerSettings.showBottomProgressBar,
+                controllerVisibility = latestControllerVisibility,
+                coordinator = uiCoordinator
+            )
+            if (shouldShow) {
+                slimTimelineRenderer.show(latestPlaybackPositionMs, latestPlaybackDurationMs)
+            } else {
+                slimTimelineRenderer.hide()
+            }
         }
     }
 
@@ -2020,6 +2067,40 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun showChooseEpisodeDialog() { overlayUiController.showChooseEpisodeDialog() }
+    private fun showChapterDialog() {
+        val points = viewModel.viewPoints.value
+        if (points.isEmpty()) return
+        val currentPositionMs = player?.currentPosition ?: 0L
+        overlayUiController.showChapterDialog(points, currentPositionMs) { targetMs ->
+            player?.seekTo(targetMs)
+            viewModel.sponsorUserSeek(targetMs)
+        }
+    }
+
+    /**
+     * 章节（view_points）应用到播放器：受「章节进度条」设置开关控制（默认关），
+     * 按当前时长归一化后驱动进度条高亮、章节条显隐、当前章节名与常驻细条的章节起点标记。
+     * duration 晚于章节数据到达时由 duration collect 重算。
+     */
+    private fun applyViewPoints(points: List<ViewPoint>) {
+        val enabled = PlayerSettingsStore.load(applicationContext).showChapterBar
+        val durationMs = viewModel.duration.value
+        val segments = if (enabled) ViewPointSegments.normalize(points, durationMs) else emptyList()
+        AppLog.d(
+            TAG,
+            "viewpoints_trace ui_apply enabled=$enabled points=${points.size} duration=$durationMs segments=${segments.size}"
+        )
+        playerView.setViewPointSegments(segments)
+        playerView.setViewPointDuration(durationMs)
+        if (::slimTimelineRenderer.isInitialized) {
+            slimTimelineRenderer.setChapterStarts(segments.map { it.fromMs }, durationMs)
+        }
+        if (::chapterSegmentBar.isInitialized) {
+            chapterSegmentBar.setSegments(segments, durationMs)
+            // 章节条与常驻细条互斥，段落到达后立即重算常驻条归属
+            renderBottomProgressBar()
+        }
+    }
     private fun showRelatedPanel() { overlayUiController.showRelatedPanel() }
     private fun showOwnerDetailDialog() { overlayUiController.showOwnerDetailDialog() }
     private fun showPlayerActionDialog() { overlayUiController.showPlayerActionDialog() }

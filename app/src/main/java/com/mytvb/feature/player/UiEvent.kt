@@ -45,6 +45,7 @@ enum class SeekType {
 enum class PanelType {
     SETTINGS,
     EPISODE,
+    CHAPTER,
     RELATED,
     ACTION,
     OWNER,

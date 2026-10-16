@@ -110,6 +110,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_SOFTWARE_VIDEO_DECODER = "software_video_decoder"
         // 与 PlayerSettingsStore.KEY_SHOW_ONLINE_WATCHING 同键（存储值"开/关"），默认开。
         private const val KEY_SHOW_ONLINE_WATCHING = "show_online_watching"
+        // 与 PlayerSettingsStore.KEY_SHOW_CHAPTER_BAR 同键（存储值"开/关"），默认关。
+        private const val KEY_SHOW_CHAPTER_BAR = "show_chapter_bar"
         // 与 PlayerSettingsStore.KEY_SHOW_LIVE_SUPER_CHAT 同键（存储值"开/关"），默认开。
         private const val KEY_SHOW_LIVE_SUPER_CHAT = "show_live_super_chat"
         private const val KEY_SUBTITLE_DEFAULT_MODE = "subtitle_default_mode"
@@ -329,7 +331,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 stored(KEY_SHOW_LIVE_SUPER_CHAT, R.string.show_live_super_chat, "开"),
                 stored(KEY_SHOW_NEXT_PREVIOUS, R.string.show_next_previous, "关"),
                 stored(KEY_SHOW_PLAY_SPEED_BUTTON, R.string.show_play_speed_button, "关"),
-                stored(KEY_SHOW_PLAYBACK_RATE, R.string.show_playback_rate, "关")
+                stored(KEY_SHOW_PLAYBACK_RATE, R.string.show_playback_rate, "关"),
+                stored(KEY_SHOW_CHAPTER_BAR, R.string.show_chapter_bar, "关")
             ))
         )
 
@@ -631,6 +634,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             KEY_SOFTWARE_VIDEO_DECODER -> toggle(key)
             KEY_SHOW_ONLINE_WATCHING -> toggle(key)
             KEY_SHOW_LIVE_SUPER_CHAT -> toggle(key)
+            KEY_SHOW_CHAPTER_BAR -> toggle(key)
             // —— 播放·播放行为 ——
             KEY_RESUME_PLAYBACK -> toggle(key)
             KEY_AFTER_PLAY -> showPlayerChoiceDialog(key, arrayOf("什么都不做", "播推荐视频", "播列表中的下一个", "播放合集中的下一个"))
@@ -1143,6 +1147,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applyStored(KEY_SHOW_NEXT_PREVIOUS)
         applyStored(KEY_SHOW_PLAY_SPEED_BUTTON)
         applyStored(KEY_SHOW_PLAYBACK_RATE)
+        applyStored(KEY_SHOW_CHAPTER_BAR)
 
         // —— 弹幕 ——
         applyStored(KEY_DM_SWITCH)

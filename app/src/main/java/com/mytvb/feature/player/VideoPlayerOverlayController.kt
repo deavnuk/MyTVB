@@ -35,6 +35,7 @@ import com.mytvb.core.ui.base.VideoRecyclerViewTuning
 import com.mytvb.core.ui.layout.WrapContentGridLayoutManager
 import com.mytvb.feature.player.comment.CommentPanelDialog
 import com.mytvb.feature.player.view.MyPlayerView
+import com.mytvb.model.player.ViewPoint
 import com.mytvb.core.ui.base.DialogWindowFit
 import com.mytvb.core.ui.base.AppToast
 
@@ -159,6 +160,86 @@ class VideoPlayerOverlayController(
             }
         }
         dialog.show()
+    }
+
+    /**
+     * 章节面板（view_points）：缩略图+标题+时间范围单列列表，点击直接 seek 到章节
+     * 起点；打开时定位并聚焦当前章。弹出/关闭协议与选集面板一致。
+     */
+    fun showChapterDialog(
+        viewPoints: List<ViewPoint>,
+        currentPositionMs: Long,
+        onSeek: (Long) -> Unit
+    ) {
+        if (viewPoints.isEmpty()) return
+        overlayCoordinator.rememberFocusRestoreTarget(PlayerOverlayCoordinator.FocusTarget.CHAPTER_BUTTON)
+        keepControllerVisibleForOverlay()
+        uiCoordinator.transition(UiEvent.PanelOpened(PanelType.CHAPTER))
+
+        val currentIndex = viewPoints.indexOfLast { currentPositionMs >= it.fromMs }.coerceAtLeast(0)
+        val dialog = AppCompatDialog(activity, R.style.DialogTheme)
+        dialog.setCanceledOnTouchOutside(true)
+        DialogWindowFit.overlay(
+            dialog,
+            LayoutInflater.from(activity).inflate(R.layout.dialog_chapter_list, null),
+            activity.resources.getDimensionPixelSize(R.dimen.px1100),
+            heightPx = activity.resources.getDimensionPixelSize(R.dimen.px700),
+            tag = "chapter"
+        )
+
+        val recyclerView = dialog.findViewById<RecyclerView>(R.id.recyclerView)
+        val titleView = dialog.findViewById<TextView>(R.id.top_title)
+        titleView?.text = "${activity.getString(R.string.video_chapter)}(${currentIndex + 1}/${viewPoints.size})"
+        dialog.findViewById<View>(R.id.button_close)?.setOnClickListener { dialog.dismiss() }
+
+        val chapterAdapter = ChapterPanelAdapter { point ->
+            dialog.dismiss()
+            onSeek(point.fromMs)
+        }.apply {
+            submitList(viewPoints, currentIndex)
+        }
+        recyclerView?.apply {
+            layoutManager = LinearLayoutManager(activity)
+            adapter = chapterAdapter
+        }
+
+        dialog.window?.decorView?.viewTreeObserver?.addOnWindowFocusChangeListener(
+            object : ViewTreeObserver.OnWindowFocusChangeListener {
+                override fun onWindowFocusChanged(hasFocus: Boolean) {
+                    if (hasFocus) {
+                        recyclerView?.viewTreeObserver?.removeOnWindowFocusChangeListener(this)
+                        focusTargetChapter(recyclerView, currentIndex)
+                    }
+                }
+            }
+        )
+
+        dialog.setOnDismissListener {
+            uiCoordinator.transition(UiEvent.PanelClosed)
+            if (isViewActive()) {
+                restoreControllerAfterOverlay()
+            }
+        }
+        dialog.show()
+    }
+
+    /** 章节面板窗口获焦后的初始定位：优先同步聚焦当前章，未布局时 scrollToPosition+双 post 兜底。 */
+    private fun focusTargetChapter(recyclerView: RecyclerView?, targetIndex: Int) {
+        val rv = recyclerView ?: return
+        val holder = rv.findViewHolderForAdapterPosition(targetIndex)
+        if (holder?.itemView != null) {
+            holder.itemView.requestFocus()
+            return
+        }
+        if (targetIndex in 0 until (rv.adapter?.itemCount ?: 0)) {
+            rv.scrollToPosition(targetIndex)
+        }
+        rv.post {
+            rv.post {
+                val h = rv.findViewHolderForAdapterPosition(targetIndex)
+                h?.itemView?.requestFocus()
+            }
+        }
     }
 
     /**

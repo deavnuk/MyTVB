@@ -17,6 +17,10 @@
     <string name="cancel">Cancel</string>
     <string name="cartoon">Animation</string>
     <string name="choose_episode">Episodes</string>
+    <string name="chapter_list">Chapters</string>
+    <string name="video_chapter">Video chapters</string>
+    <string name="chapter_playing">Now playing</string>
+    <string name="show_chapter_bar">Chapter bar</string>
     <string name="clear_cache">Clear cache</string>
     <string name="risk_control_verify">Risk control verification</string>
     <string name="risk_register_failed_format">Request failed: %1$s</string>

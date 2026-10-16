@@ -12,13 +12,24 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
+    private companion object {
+        /** 章节起点竖线：白 80%、2px 宽（细条高度小，不按密度缩放以免吞掉整条）。 */
+        private const val CHAPTER_MARKER_COLOR = 0xCCEEEEEE.toInt()
+        private const val CHAPTER_MARKER_STROKE_PX = 2f
+    }
+
     private var segments: List<SponsorSegment> = emptyList()
     private var durationMs: Long = 0L
     private var positionMs: Long = 0L
     private var sponsorDurationMs: Long = 0L
+    private var chapterStartsMs: List<Long> = emptyList()
+    private var chapterDurationMs: Long = 0L
 
     private val playedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0088BB.toInt() }
     private val segmentPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val chapterMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = CHAPTER_MARKER_COLOR
+    }
 
     fun setSegments(segments: List<SponsorSegment>) {
         this.segments = segments
@@ -27,6 +38,13 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
 
     fun setSponsorDuration(durationMs: Long) {
         this.sponsorDurationMs = durationMs
+        invalidate()
+    }
+
+    /** 章节起点标记（view_points.fromMs，忽略 0 起点），在细条上画白竖线。 */
+    fun setChapterStarts(startsMs: List<Long>, durationMs: Long) {
+        this.chapterStartsMs = startsMs.filter { it > 0L }
+        this.chapterDurationMs = durationMs
         invalidate()
     }
 
@@ -54,6 +72,15 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
                 val right = (segment.endTimeMs.toFloat() / sponsorDurationMs) * w
                 segmentPaint.color = (segment.categoryColor() and 0x00FFFFFFL).toInt() or 0x99000000.toInt()
                 canvas.drawRect(left, 0f, right, h, segmentPaint)
+            }
+        }
+
+        // 章节起点白竖线（最上层，细条全高）
+        if (chapterStartsMs.isNotEmpty() && chapterDurationMs > 0L) {
+            val halfStroke = CHAPTER_MARKER_STROKE_PX / 2f
+            for (startMs in chapterStartsMs) {
+                val x = (startMs.toFloat() / chapterDurationMs) * w
+                canvas.drawRect(x - halfStroke, 0f, x + halfStroke, h, chapterMarkerPaint)
             }
         }
     }

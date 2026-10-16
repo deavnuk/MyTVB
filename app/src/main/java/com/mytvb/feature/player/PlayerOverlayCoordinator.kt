@@ -15,6 +15,7 @@ class PlayerOverlayCoordinator(
         PLAY_PAUSE,
         RELATED_BUTTON,
         EPISODE_BUTTON,
+        CHAPTER_BUTTON,
         MORE_BUTTON,
         OWNER_BUTTON,
         COMMENT_BUTTON
@@ -44,6 +45,7 @@ class PlayerOverlayCoordinator(
         when (focusRestoreTarget) {
             FocusTarget.RELATED_BUTTON -> playerView.requestRelatedButtonFocus()
             FocusTarget.EPISODE_BUTTON -> playerView.requestEpisodeButtonFocus()
+            FocusTarget.CHAPTER_BUTTON -> playerView.requestChapterEntryFocus()
             FocusTarget.MORE_BUTTON -> playerView.requestMoreButtonFocus()
             FocusTarget.OWNER_BUTTON -> playerView.requestOwnerButtonFocus()
             FocusTarget.COMMENT_BUTTON -> playerView.requestCommentButtonFocus()

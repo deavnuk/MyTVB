@@ -65,6 +65,8 @@ import com.mytvb.feature.player.danmaku.common.DanmakuController
 import com.mytvb.feature.player.danmaku.common.LiveDanmakuController
 import com.mytvb.feature.player.DanmakuFilterContext
 import com.mytvb.feature.player.sponsor.SponsorSegment
+import com.mytvb.feature.player.viewpoint.NormalizedViewPointSegment
+import com.mytvb.feature.player.viewpoint.ViewPointSegments
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -200,6 +202,8 @@ class MyPlayerView @JvmOverloads constructor(
     private var pendingSeekPreviewSnapshot: VideoSnapshotData? = null
     private var pendingSponsorSegments: List<SponsorSegment> = emptyList()
     private var pendingSponsorDurationMs: Long = 0L
+    private var pendingViewPointSegments: List<NormalizedViewPointSegment> = emptyList()
+    private var pendingViewPointDurationMs: Long = 0L
     private var pendingDmMaskRequest: DmMaskRequest? = null
 
     private var touchInterceptListener: ((MotionEvent) -> Boolean)? = null
@@ -746,6 +750,8 @@ class MyPlayerView @JvmOverloads constructor(
         pendingOwnerButtonVisible?.let(target::setShowHideOwnerButton)
         target.setSponsorSegments(pendingSponsorSegments)
         target.setSponsorDuration(pendingSponsorDurationMs)
+        target.setViewPointSegments(pendingViewPointSegments)
+        target.setViewPointDuration(pendingViewPointDurationMs)
     }
 
     private fun setupSettingView() {
@@ -1198,6 +1204,7 @@ class MyPlayerView @JvmOverloads constructor(
         handleDoubleTapModeKeys(event)?.let { return it }
         handleOkLongPressSpeedKeys(event)?.let { return it }
         handleControllerDpadKeys(event)?.let { return it }
+        handleChapterPanelKeys(event)?.let { return it }
         return dispatchMediaAndSuperFallbackKeys(event)
     }
 
@@ -1535,13 +1542,20 @@ class MyPlayerView @JvmOverloads constructor(
                 return handleSeekSessionKeyEvent(event)
             }
         }
-        // 控制栏可见且焦点在进度条（最上一行）时，UP 直接收起控制栏，与返回键等效
+        // 控制栏可见且焦点在进度条（最上一行）时：有章节条则 UP 聚焦章节条（层级上它
+        // 就在进度条上方），否则维持原行为收起控制栏（与返回键等效）
         if (controllerVisible
             && event.keyCode == KeyEvent.KEYCODE_DPAD_UP
             && event.action == KeyEvent.ACTION_DOWN
             && controller?.isTimebarFocused() == true
         ) {
-            hideController()
+            if (controller?.isChapterEntryVisible() == true) {
+                AppLog.d("PlayerViewPerf", "viewpoints_trace up_to_chapter_entry")
+                controller?.requestChapterEntryFocus()
+            } else {
+                AppLog.d("PlayerViewPerf", "viewpoints_trace up_hide_controller entryVisible=false")
+                hideController()
+            }
             return true
         }
         // 对齐 blbl：控制栏可见时 UP 显式聚焦进度条（blbl UP = focusSeekBar）。
@@ -1925,8 +1939,12 @@ class MyPlayerView @JvmOverloads constructor(
             cancelPendingTimebarHoldStart()
             cancelTimebarSeekLoop()
             if (holdStarted) {
-                // Short press: accumulate, don't start idle (commit will clean up)
-                handleTapAccumulate(forward)
+                // Short press: 有章节时直接跨章跳转；无章节回落 ±10s 轻点累积
+                if (trySeekChapter(forward)) {
+                    resetTapAccumulate()
+                } else {
+                    handleTapAccumulate(forward)
+                }
             } else {
                 // Long press: clear tap accumulation, seek to target
                 resetTapAccumulate()
@@ -1950,6 +1968,54 @@ class MyPlayerView @JvmOverloads constructor(
     private fun cancelPendingTimebarHoldStart() {
         pendingTimebarHoldStartRunnable?.let { removeCallbacks(it) }
         pendingTimebarHoldStartRunnable = null
+    }
+
+    /**
+     * 焦点在进度条（非拖动预览中）按 OK/ENTER：打开章节选择弹窗。
+     * 拖动预览（scrubbing）中的 OK 是确认 seek，放行给 timebar；
+     * 无章节/无监听返回 null 走默认路径（如播放暂停）。
+     */
+    private fun handleChapterPanelKeys(event: KeyEvent): Boolean? {
+        if (event.action != KeyEvent.ACTION_DOWN) return null
+        if (event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER && event.keyCode != KeyEvent.KEYCODE_ENTER) return null
+        val dropReason = when {
+            pendingViewPointSegments.isEmpty() -> "empty_segments"
+            onChapterPanelRequestListener == null -> "no_listener"
+            controller?.isFullyVisible() != true -> "controller_hidden"
+            controller?.isTimebarFocused() != true -> "timebar_not_focused"
+            controller?.isScrubbingTimeBar() == true -> "scrubbing"
+            else -> null
+        }
+        if (dropReason != null) {
+            AppLog.d("PlayerViewPerf", "viewpoints_trace panel_key_drop reason=$dropReason")
+            return null
+        }
+        onChapterPanelRequestListener!!.invoke()
+        return true
+    }
+
+    /**
+     * 焦点在进度条时短按 ←/→ 的跨章跳转：seek 到上一章/下一章起点并按
+     * 长按提交同款路径收尾（弹幕强同步 + 缩略图淡出 + 1s 后恢复控制栏）。
+     * 无章节或无可跳目标（如已在第一章内按"上一章"）返回 false，
+     * 调用方回落到 ±10s 轻点累积快进退。
+     */
+    private fun trySeekChapter(forward: Boolean): Boolean {
+        val segments = pendingViewPointSegments
+        if (segments.isEmpty()) return false
+        val currentPlayer = player ?: return false
+        val targetMs = ViewPointSegments.seekChapterMs(
+            segments,
+            currentPlayer.currentPosition,
+            forward
+        ) ?: return false
+        currentPlayer.seekTo(targetMs)
+        onUserSeekListener?.invoke(targetMs)
+        syncDanmakuPosition(targetMs, forceSeek = true)
+        controller?.cancelSeekPreview()
+        timelineThumbPreview?.hideAfter(500L)
+        startTimebarSeekIdle()
+        return true
     }
 
     private fun doTimebarSeekTick() {
@@ -2867,6 +2933,15 @@ class MyPlayerView @JvmOverloads constructor(
         controller?.requestEpisodeButtonFocus()
     }
 
+    fun requestChapterEntryFocus() {
+        controller?.requestChapterEntryFocus()
+    }
+
+    fun isChapterEntryVisible(): Boolean = controller?.isChapterEntryVisible() == true
+
+    /** 焦点在进度条时按 OK：请求宿主打开章节选择弹窗（由 Activity/Fragment 设置）。 */
+    var onChapterPanelRequestListener: (() -> Unit)? = null
+
     fun showHideActionButton(show: Boolean) {
         pendingActionButtonVisible = show
         controller?.showHideActionButton(show)
@@ -3234,6 +3309,19 @@ class MyPlayerView @JvmOverloads constructor(
         pendingSponsorDurationMs = durationMs
         controller?.setSponsorDuration(durationMs)
     }
+
+    fun setViewPointSegments(segments: List<NormalizedViewPointSegment>) {
+        pendingViewPointSegments = segments
+        controller?.setViewPointSegments(segments)
+    }
+
+    fun setViewPointDuration(durationMs: Long) {
+        pendingViewPointDurationMs = durationMs
+        controller?.setViewPointDuration(durationMs)
+    }
+
+    /** 当前已归一化的章节分段（供跳章按键读取；controller 未就绪时读 pending）。 */
+    fun getViewPointSegments(): List<NormalizedViewPointSegment> = pendingViewPointSegments
 
     /**
      * 创建弹幕引擎（性能优先轻量引擎，唯一实现）。需在 setData 之前、播放器 setup 时调用，

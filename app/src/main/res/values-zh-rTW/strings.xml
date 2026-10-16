@@ -17,6 +17,10 @@
     <string name="cancel">取消</string>
     <string name="cartoon">動畫</string>
     <string name="choose_episode">選集</string>
+    <string name="chapter_list">章節列表</string>
+    <string name="video_chapter">影片章節</string>
+    <string name="chapter_playing">正在播放</string>
+    <string name="show_chapter_bar">章節進度條</string>
     <string name="clear_cache">清除快取</string>
     <string name="risk_control_verify">風控驗證</string>
     <string name="risk_register_failed_format">申請失敗：%1$s</string>

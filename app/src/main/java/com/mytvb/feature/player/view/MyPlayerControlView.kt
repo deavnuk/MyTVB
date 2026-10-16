@@ -17,6 +17,7 @@ import android.widget.TextView
 
 
 import androidx.annotation.OptIn
+import androidx.core.view.isVisible
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -25,6 +26,8 @@ import com.mytvb.R
 import com.mytvb.core.common.log.AppLog
 
 import com.mytvb.feature.player.sponsor.SponsorSegment
+import com.mytvb.feature.player.viewpoint.NormalizedViewPointSegment
+import com.mytvb.feature.player.viewpoint.ViewPointSegments
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.LazyThreadSafetyMode
 import com.mytvb.core.ui.base.AppToast
@@ -109,6 +112,8 @@ class MyPlayerControlView @JvmOverloads constructor(
     private lateinit var textLiveDuration: TextView
     private lateinit var loadingProgressBar: ProgressBar
     private lateinit var titleContainer: View
+    private lateinit var viewChapterEntry: View
+    private lateinit var textChapterName: TextView
     private lateinit var centerControls: ViewGroup
     private lateinit var bottomBar: ViewGroup
 
@@ -116,6 +121,8 @@ class MyPlayerControlView @JvmOverloads constructor(
     private var mirrorEnabled: Boolean = false
     private var ffDuration: Long = DEFAULT_FAST_FORWARD_MS
     private var isScrubbing: Boolean = false
+    private var viewPointSegments: List<NormalizedViewPointSegment> = emptyList()
+    private var lastChapterName: String = ""
     private var timeBarMinUpdateIntervalMs: Int = DEFAULT_TIME_BAR_MIN_UPDATE_INTERVAL_MS
     private var showMultiWindowTimeBar: Boolean = false
     private var seekPreviewListener: SeekPreviewListener? = null
@@ -212,6 +219,8 @@ class MyPlayerControlView @JvmOverloads constructor(
         centerControls = findViewById(R.id.exo_center_controls)
         bottomBar = findViewById(R.id.exo_bottom_bar)
         titleContainer = findViewById(R.id.view_title)
+        viewChapterEntry = findViewById(R.id.view_chapter_entry)
+        textChapterName = findViewById(R.id.text_chapter_name)
 
         // Focus routing is kept in a dedicated coordinator so player actions stay separate.
         focusCoordinator = PlayerControlFocusCoordinator(
@@ -264,6 +273,7 @@ class MyPlayerControlView @JvmOverloads constructor(
             buttonLine,
             buttonClose,
             buttonBack,
+            viewChapterEntry,
             timeBar
         )
         timeBar.setKeyCountIncrement(60)
@@ -338,6 +348,11 @@ class MyPlayerControlView @JvmOverloads constructor(
         buttonChooseEpisode.setOnClickListener {
             resetHideCallbacks()
             onVideoSettingChangeListener?.onChooseEpisode()
+        }
+
+        viewChapterEntry.setOnClickListener {
+            resetHideCallbacks()
+            onVideoSettingChangeListener?.onChapterClick()
         }
 
         buttonMore.setOnClickListener {
@@ -536,6 +551,7 @@ class MyPlayerControlView @JvmOverloads constructor(
         timelineCoordinator.renderPosition(positionMs) { sanitizedPositionMs ->
             exoPosition.text = NumberUtils.formatTimeMs(sanitizedPositionMs)
             timeBar.setPosition(sanitizedPositionMs)
+            updateChapterName(sanitizedPositionMs)
         }
     }
 
@@ -902,6 +918,14 @@ class MyPlayerControlView @JvmOverloads constructor(
         focusCoordinator.requestEpisodeButtonFocus()
     }
 
+    fun isChapterEntryVisible(): Boolean = viewChapterEntry.isVisible
+
+    fun requestChapterEntryFocus() {
+        if (viewChapterEntry.isVisible) {
+            viewChapterEntry.requestFocus()
+        }
+    }
+
     fun requestMoreButtonFocus() {
         focusCoordinator.requestMoreButtonFocus()
     }
@@ -1175,6 +1199,29 @@ class MyPlayerControlView @JvmOverloads constructor(
 
     fun setSponsorDuration(durationMs: Long) {
         timeBar.setSponsorDuration(durationMs)
+    }
+
+    /** 章节（view_points）分段：驱动进度条高亮、章节条显隐与当前章节名。 */
+    fun setViewPointSegments(segments: List<NormalizedViewPointSegment>) {
+        viewPointSegments = segments
+        timeBar.setViewPointSegments(segments)
+        viewChapterEntry.isVisible = segments.isNotEmpty()
+        updateChapterName(player?.currentPosition ?: 0L)
+    }
+
+    fun setViewPointDuration(durationMs: Long) {
+        timeBar.setViewPointDuration(durationMs)
+    }
+
+    fun getViewPointSegments(): List<NormalizedViewPointSegment> = viewPointSegments
+
+    private fun updateChapterName(positionMs: Long) {
+        val segment = ViewPointSegments.findSegmentAt(viewPointSegments, positionMs)
+        val name = segment?.content.orEmpty()
+        if (lastChapterName != name) {
+            lastChapterName = name
+            textChapterName.text = name
+        }
     }
 
 }

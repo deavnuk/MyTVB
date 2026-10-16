@@ -42,6 +42,10 @@
     <string name="cartoon">动画</string>
     <string name="character_counter_pattern">%1$d/%2$d</string>
     <string name="choose_episode">选集</string>
+    <string name="chapter_list">章节列表</string>
+    <string name="video_chapter">视频章节</string>
+    <string name="chapter_playing">正在播放</string>
+    <string name="show_chapter_bar">章节进度条</string>
     <string name="clear_cache">清除缓存</string>
     <string name="risk_control_verify">风控验证</string>
     <string name="risk_register_failed_format">申请失败：%1$s</string>

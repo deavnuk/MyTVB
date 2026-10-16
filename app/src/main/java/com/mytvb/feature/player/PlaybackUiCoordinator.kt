@@ -29,6 +29,7 @@ class PlaybackUiCoordinator {
         None,
         Settings,
         Episode,
+        Chapter,
         Related,
         Action,
         Owner,
@@ -252,6 +253,7 @@ class PlaybackUiCoordinator {
     private fun handlePanelOpened(panel: PanelType) {
         panelState = when (panel) {
             PanelType.EPISODE -> PanelState.Episode
+            PanelType.CHAPTER -> PanelState.Chapter
             PanelType.RELATED -> PanelState.Related
             PanelType.ACTION -> PanelState.Action
             PanelType.OWNER -> PanelState.Owner
@@ -265,6 +267,7 @@ class PlaybackUiCoordinator {
         hudState = HudState.Panel
         focusOwner = when (panel) {
             PanelType.EPISODE,
+            PanelType.CHAPTER,
             PanelType.ACTION,
             PanelType.OWNER,
             PanelType.COMMENT -> FocusOwner.Dialog

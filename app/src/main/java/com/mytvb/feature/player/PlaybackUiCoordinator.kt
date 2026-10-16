@@ -379,6 +379,10 @@ class PlaybackUiCoordinator {
     fun handleBackPress(
         isSettingShowing: Boolean,
         hideSetting: () -> Unit,
+        isEndPanelShowing: Boolean = false,
+        hideEndPanel: () -> Unit = {},
+        isAutoPlayPending: Boolean = false,
+        cancelAutoPlayAndShowEndPanel: () -> Unit = {},
         isControllerFullyVisible: Boolean,
         hideController: () -> Unit,
         hidePanel: () -> Unit,
@@ -386,6 +390,9 @@ class PlaybackUiCoordinator {
     ) {
         when {
             isSettingShowing -> hideSetting()
+            isEndPanelShowing -> hideEndPanel()
+            // 播完连播倒计时中按返回：取消连播并展示播放结束推荐页（优先于关控制栏/退出）
+            isAutoPlayPending -> cancelAutoPlayAndShowEndPanel()
             hasVisiblePanel() -> hidePanel()
             isControllerFullyVisible -> hideController()
             else -> exitPlayer()

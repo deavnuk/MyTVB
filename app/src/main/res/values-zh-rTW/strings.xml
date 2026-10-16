@@ -246,6 +246,8 @@
     <string name="recent_update">最近更新</string>
     <string name="recommend">推薦</string>
     <string name="related_video">推薦影片：</string>
+    <string name="play_end_replay">重新播放</string>
+    <string name="play_end_related_title">相關推薦</string>
     <string name="retry">重試</string>
     <string name="rewind">倒轉</string>
     <string name="saturday">週六</string>

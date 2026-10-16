@@ -28,6 +28,8 @@ class VideoAdapter(
     private val displayStyle: DisplayStyle = DisplayStyle.DEFAULT,
     private val itemWidthPx: Int? = null,
     private val onItemClick: (VideoModel) -> Unit = {},
+    private val titleLines: Int = 2,
+    private val showOwnerLine: Boolean = true,
     onTopEdgeUp: (() -> Boolean)? = null,
     onBottomEdgeDown: (() -> Boolean)? = null,
     onLeftEdge: (() -> Boolean)? = null,
@@ -145,6 +147,8 @@ class VideoAdapter(
             views,
             displayStyle,
             clickLambda,
+            titleLines,
+            showOwnerLine,
             onTopEdgeUp,
             onBottomEdgeDown,
             onLeftEdge,
@@ -184,6 +188,8 @@ class VideoAdapter(
         private val views: VideoCardViews,
         private val displayStyle: DisplayStyle,
         private val onItemClick: (View, VideoModel) -> Unit,
+        private val titleLines: Int = 2,
+        private val showOwnerLine: Boolean = true,
         onTopEdgeUp: (() -> Boolean)?,
         onBottomEdgeDown: (() -> Boolean)?,
         onLeftEdge: (() -> Boolean)? = null,
@@ -307,10 +313,10 @@ class VideoAdapter(
             if (isCurrentlyPlaying) {
                 titleInPlayingMode = true
                 val accentColor = ContextCompat.getColor(views.root.context, R.color.colorAccent)
-                views.textLayer.setTitle(title, lines = 2, isPlaying = true, color = accentColor)
+                views.textLayer.setTitle(title, lines = titleLines, isPlaying = true, color = accentColor)
             } else {
                 titleInPlayingMode = false
-                views.textLayer.setTitle(title, lines = 2, isPlaying = false, color = defaultTitleColor)
+                views.textLayer.setTitle(title, lines = titleLines, isPlaying = false, color = defaultTitleColor)
             }
             when (displayStyle) {
                 DisplayStyle.DEFAULT -> bindDefault(video)
@@ -352,14 +358,18 @@ class VideoAdapter(
         private fun bindDefault(video: VideoModel) {
             views.textLayer.clearHistoryTrailing()
 
-            val ownerName = video.authorName
-            val publishLabel = TimeUtils.formatRelativeTime(views.root.context, if (video.pubDate > 0) video.pubDate else video.createTime)
-            val ownerLine = buildOwnerLine(ownerName, publishLabel)
-            views.textLayer.setOwner(
-                ownerText = ownerLine,
-                showAvatar = ownerName.isNotBlank() && !video.isPortrait,
-                badgeText = badgeTextFor(video)
-            )
+            if (!showOwnerLine) {
+                // 紧凑卡片（如播放结束推荐页）：不设 owner 内容，文字层测量时该行高度归零
+                views.textLayer.setOwner(ownerText = "", showAvatar = false)
+            } else {
+                val ownerName = video.authorName
+                val publishLabel = TimeUtils.formatRelativeTime(views.root.context, if (video.pubDate > 0) video.pubDate else video.createTime)
+                views.textLayer.setOwner(
+                    ownerText = buildOwnerLine(ownerName, publishLabel),
+                    showAvatar = ownerName.isNotBlank() && !video.isPortrait,
+                    badgeText = badgeTextFor(video)
+                )
+            }
 
             val duration = video.durationValue
             val progress = watchedProgress(video.historyProgress, duration)

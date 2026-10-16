@@ -66,6 +66,7 @@ import com.mytvb.feature.player.settings.PlayerSettings
 import com.mytvb.feature.player.settings.PlayerSettingsStore
 import com.mytvb.feature.player.interaction.InteractionOverlayView
 import com.mytvb.feature.player.PlaybackPreloadTarget
+import com.mytvb.feature.player.PlaybackEndPanelController
 import com.mytvb.feature.player.douyin.DouyinModeManager
 import com.mytvb.feature.player.douyin.DouyinPlaybackCoordinator
 import com.mytvb.feature.player.view.DouyinModeKeyListener
@@ -277,6 +278,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private lateinit var relatedAdapter: VideoAdapter
     private lateinit var autoPlayController: VideoPlayerAutoPlayController
+    private lateinit var playbackEndPanelController: PlaybackEndPanelController
     private lateinit var overlayUiController: VideoPlayerOverlayController
     private lateinit var resumeHintController: VideoPlayerResumeHintController
 
@@ -317,7 +319,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private fun stopTeenModeTicker() {
         teenModeHandler.removeCallbacks(teenModeTicker)
     }
-    private var pendingRelatedVideosBeforeFirstFrame: List<VideoModel>? = null
     private lateinit var slimTimelineRenderer: SlimTimelineRenderer
     private val sessionCoordinator = PlayerSessionCoordinator()
     private var resumePlaybackWhenStarted: Boolean = false
@@ -875,6 +876,31 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             },
             onPendingActionCleared = { viewModel.clearPendingContinuation() }
         )
+        playbackEndPanelController = PlaybackEndPanelController(
+            activity = this,
+            panel = binding.viewPlayEndPanel,
+            recyclerView = binding.recyclerViewPlayEnd,
+            replayButton = binding.buttonReplay,
+            relatedTitle = binding.titlePlayEndRelated,
+            relatedProvider = {
+                if (::relatedAdapter.isInitialized) relatedAdapter.getItemsSnapshot() else emptyList()
+            },
+            onReplay = { replayCurrentVideo() },
+            onPlayVideo = { video ->
+                if (isVideoBlockedByMinorProtection(video)) {
+                    toast(getString(R.string.activity_teen_mode_blocked_video))
+                } else {
+                    playerView.hideController()
+                    playbackEndPanelController.hide()
+                    hideNextPreview()
+                    sessionCoordinator.replacePlayQueue(
+                        buildPlayQueue(relatedAdapter.getItemsSnapshot(), video)
+                    )
+                    sessionCoordinator.updateCurrentVideo(video)
+                    viewModel.playRelatedVideo(video)
+                }
+            }
+        )
         overlayUiController = VideoPlayerOverlayController(
             activity = this,
             playerView = playerView,
@@ -998,10 +1024,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     )
                 }
                 viewModel.onPlaybackFirstFrame()
-                pendingRelatedVideosBeforeFirstFrame?.let { rawRelated ->
-                    pendingRelatedVideosBeforeFirstFrame = null
-                    applyRelatedVideos(rawRelated)
-                }
                 startupTrace
                     ?.takeIf { !it.firstFrameLogged }
                     ?.also {
@@ -1159,11 +1181,30 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 // 公益广告锁死模式：吞掉返回键，不允许退出（dispatchKeyEvent 已拦截，这里是双重保险）
                 if (psasLocked) return
                 if (cancelResume()) {
+                    AppLog.i(TAG, "BACK consumed by cancelResume")
                     return
                 }
+                AppLog.i(
+                    TAG,
+                    "BACK state: pending=${autoPlayController.hasPendingAction} " +
+                        "endPanel=${playbackEndPanelController.isShowing()} " +
+                        "setting=${playerView.isSettingViewShowing()} " +
+                        "panel=${uiCoordinator.hasVisiblePanel()} " +
+                        "controller=${playerView.isControllerFullyVisible()} " +
+                        "ended=${player?.playbackState == Player.STATE_ENDED}"
+                )
                 uiCoordinator.handleBackPress(
                     isSettingShowing = playerView.isSettingViewShowing(),
                     hideSetting = { playerView.showHideSettingView(false) },
+                    isEndPanelShowing = playbackEndPanelController.isShowing(),
+                    hideEndPanel = { playbackEndPanelController.hide() },
+                    isAutoPlayPending = autoPlayController.hasPendingAction,
+                    cancelAutoPlayAndShowEndPanel = {
+                        // 隐藏右下角倒计时卡=取消连播（触发 clearPendingContinuation），并展示推荐页
+                        AppLog.i(TAG, "BACK branch: cancel autoplay + show end panel")
+                        hideNextPreview()
+                        playbackEndPanelController.show()
+                    },
                     isControllerFullyVisible = playerView.isControllerFullyVisible(),
                     hideController = { playerView.hideController() },
                     hidePanel = { hideContentPanel() },
@@ -1242,7 +1283,6 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 activeStartupTraceId = playbackRequest.startupTraceId
                 activeStartupTraceStartElapsedMs = playbackRequest.startupTraceStartElapsedMs
                 activeStartupFirstFrameLogged = false
-                pendingRelatedVideosBeforeFirstFrame = null
                 playerPerfTrace = PlayerPerfTrace(prepareMs = System.currentTimeMillis())
                 // 锚定 breakdown 起点(prepare)相对 card_click 的偏移，暴露 card_click→prepare 的盲区。
                 // 该区间含 playinfo 网络请求 + DASH 解析 + 媒源构建，是 breakdown total 未覆盖的部分。
@@ -1493,17 +1533,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         }
 
         lifecycleScope.launch {
+            // related 直接应用，不做「defer 到首帧」：defer 版本依赖首帧回调消费，
+            // 但同一起播内 playbackRequest 二次发射会清 pending、复用 player 实例时
+            // 首帧回调也可能不触发，两路都会把 related 数据弄丢（连播池空=播完直接退出）。
+            // related 列表未打开时 RecyclerView 处于 GONE，首帧前 setData 开销可忽略。
             viewModel.relatedVideos.collect { rawRelated ->
-                if (!activeStartupFirstFrameLogged && rawRelated.isNotEmpty()) {
-                    pendingRelatedVideosBeforeFirstFrame = rawRelated
-                    PlaybackStartupTrace.log(
-                        traceId = activeStartupTraceId,
-                        startElapsedMs = activeStartupTraceStartElapsedMs,
-                        step = "related_filter_deferred",
-                        message = "count=${rawRelated.size}"
-                    )
-                    return@collect
-                }
                 applyRelatedVideos(rawRelated)
             }
         }
@@ -1768,6 +1802,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private fun applyRelatedVideos(rawRelated: List<VideoModel>) {
         val related = ContentFilter.filterVideos(this@PlayerActivity, rawRelated)
+        AppLog.i(TAG, "applyRelatedVideos raw=${rawRelated.size} filtered=${related.size}")
         sessionCoordinator.updateRelatedVideos(related)
         schedulePreloadAndHeaderRefresh()
         relatedAdapter.setData(related)
@@ -2039,16 +2074,39 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             }
             is PlayerSessionCoordinator.ContinuationPlan.ExitPlayer -> {
                 AppLog.i(TAG, "autoplay plan=exit mode=$afterPlayMode hasNext=$hasNextEpisode nextCid=${nextEpisode?.cid}")
-                finish()
+                if (afterPlayMode != AfterPlayMode.NOTHING && !psasLocked) {
+                    // 连播模式但取不到下一个（推荐空/队列空）：不再无声退出，展示播完推荐页兜底
+                    playbackEndPanelController.show()
+                } else {
+                    finish()
+                }
             }
             is PlayerSessionCoordinator.ContinuationPlan.ShowController -> {
                 AppLog.i(TAG, "autoplay plan=show_controller mode=$afterPlayMode hasNext=$hasNextEpisode nextCid=${nextEpisode?.cid}")
-                playerView.showController()
+                if (afterPlayMode != AfterPlayMode.NOTHING && !psasLocked) {
+                    playbackEndPanelController.show()
+                } else {
+                    playerView.showController()
+                }
             }
         }
     }
 
     private fun hideNextPreview() { autoPlayController.hideNextPreview() }
+
+    /** 播放结束推荐页的重播：回到 0 从头播（ENDED 状态 seek 自动回 READY），复用用户 seek 的进度上报。 */
+    private fun replayCurrentVideo() {
+        val currentPlayer = player ?: return
+        playbackEndPanelController.hide()
+        AppLog.i(TAG, "playback end panel: replay from start")
+        currentPlayer.seekTo(0)
+        if (currentPlayer.playbackState == Player.STATE_IDLE) {
+            currentPlayer.prepare()
+        }
+        currentPlayer.play()
+        viewModel.sponsorUserSeek(0)
+        restartProgressUpdates()
+    }
 
     /** 试看提示已提示过的 cid，避免 fallback 重建/STATE_READY 反复进入时重复弹 Toast。 */
     private var previewHintShownCid = Long.MIN_VALUE

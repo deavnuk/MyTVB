@@ -2382,14 +2382,19 @@ class VideoPlayerViewModel(
             loadPlayUrl(preferLastPlayTime = preferLastPlayTime, loadGeneration = loadGeneration)
         }
 
+        AppLog.i(TAG, "related_source detail=${related.size} cid=$currentCid bvid=$currentBvid viewCid=${detail.view?.cid} viewBvid=${detail.view?.bvid}")
         if (related.isNotEmpty()) {
             _relatedVideos.value = related
         } else {
             viewModelScope.launch {
                 val latestRelated = runCatching {
                     apiService.getRelated(currentAid, currentBvid).data.orEmpty()
+                }.onFailure {
+                    AppLog.w(TAG, "related_fallback failed aid=$currentAid bvid=$currentBvid err=${it.message}")
                 }.getOrDefault(emptyList())
-                if (currentCid == detail.view?.cid || currentBvid == detail.view?.bvid) {
+                val guardPass = currentCid == detail.view?.cid || currentBvid == detail.view?.bvid
+                AppLog.i(TAG, "related_fallback got=${latestRelated.size} guardPass=$guardPass aid=$currentAid bvid=$currentBvid")
+                if (guardPass) {
                     _relatedVideos.value = latestRelated
                 }
             }

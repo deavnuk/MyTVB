@@ -39,6 +39,9 @@ class VideoPlayerAutoPlayController(
     // 倒计时控件只保存会话 id，不再持有会重新读取播放器状态的 lambda。
     private var pendingSessionId: String? = null
 
+    /** 连播倒计时是否进行中（BACK 链据此决定「取消连播+展示推荐页」分支） */
+    val hasPendingAction: Boolean get() = pendingSessionId != null
+
     private val autoNextRunnable = Runnable {
         if (!canExecutePendingAction()) {
             return@Runnable

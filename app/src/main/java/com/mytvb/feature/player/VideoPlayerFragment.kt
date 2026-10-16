@@ -159,6 +159,7 @@ class VideoPlayerFragment : Fragment() {
 
     private lateinit var relatedAdapter: VideoAdapter
     private lateinit var autoPlayController: VideoPlayerAutoPlayController
+    private lateinit var playbackEndPanelController: PlaybackEndPanelController
     private lateinit var overlayUiController: VideoPlayerOverlayController
     private lateinit var resumeHintController: VideoPlayerResumeHintController
 
@@ -631,6 +632,31 @@ class VideoPlayerFragment : Fragment() {
             onExecutePendingSession = { sessionId -> viewModel.playContinuation(sessionId) },
             onPendingActionCleared = { viewModel.clearPendingContinuation() }
         )
+        playbackEndPanelController = PlaybackEndPanelController(
+            activity = requireActivity() as androidx.appcompat.app.AppCompatActivity,
+            panel = binding.viewPlayEndPanel,
+            recyclerView = binding.recyclerViewPlayEnd,
+            replayButton = binding.buttonReplay,
+            relatedTitle = binding.titlePlayEndRelated,
+            relatedProvider = {
+                if (::relatedAdapter.isInitialized) relatedAdapter.getItemsSnapshot() else emptyList()
+            },
+            onReplay = { replayCurrentVideo() },
+            onPlayVideo = { video ->
+                if (isVideoBlockedByMinorProtection(video)) {
+                    requireContext().toast(getString(R.string.player_minor_protection_blocked))
+                } else {
+                    playerView.hideController()
+                    playbackEndPanelController.hide()
+                    hideNextPreview()
+                    sessionCoordinator.replacePlayQueue(
+                        PlayerActivity.buildPlayQueue(relatedAdapter.getItemsSnapshot(), video)
+                    )
+                    sessionCoordinator.updateCurrentVideo(video)
+                    viewModel.playRelatedVideo(video)
+                }
+            }
+        )
         overlayUiController = VideoPlayerOverlayController(
             activity = requireActivity() as androidx.appcompat.app.AppCompatActivity,
             playerView = playerView,
@@ -948,11 +974,30 @@ class VideoPlayerFragment : Fragment() {
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     if (cancelResume()) {
+                        AppLog.i(TAG, "BACK consumed by cancelResume")
                         return
                     }
+                    AppLog.i(
+                        TAG,
+                        "BACK state: pending=${autoPlayController.hasPendingAction} " +
+                            "endPanel=${playbackEndPanelController.isShowing()} " +
+                            "setting=${playerView.isSettingViewShowing()} " +
+                            "panel=${uiCoordinator.hasVisiblePanel()} " +
+                            "controller=${playerView.isControllerFullyVisible()} " +
+                            "ended=${player?.playbackState == Player.STATE_ENDED}"
+                    )
                     uiCoordinator.handleBackPress(
                         isSettingShowing = playerView.isSettingViewShowing(),
                         hideSetting = { playerView.showHideSettingView(false) },
+                        isEndPanelShowing = playbackEndPanelController.isShowing(),
+                        hideEndPanel = { playbackEndPanelController.hide() },
+                        isAutoPlayPending = autoPlayController.hasPendingAction,
+                        cancelAutoPlayAndShowEndPanel = {
+                            // 隐藏右下角倒计时卡=取消连播（触发 clearPendingContinuation），并展示推荐页
+                            AppLog.i(TAG, "BACK branch: cancel autoplay + show end panel")
+                            hideNextPreview()
+                            playbackEndPanelController.show()
+                        },
                         isControllerFullyVisible = playerView.isControllerFullyVisible(),
                         hideController = { playerView.hideController() },
                         hidePanel = { hideContentPanel() },
@@ -1258,6 +1303,7 @@ class VideoPlayerFragment : Fragment() {
                 launch {
                     viewModel.relatedVideos.collect { rawRelated ->
                         val related = ContentFilter.filterVideos(requireContext(), rawRelated)
+                        AppLog.i(TAG, "applyRelatedVideos raw=${rawRelated.size} filtered=${related.size}")
                         sessionCoordinator.updateRelatedVideos(related)
                         schedulePreloadAndHeaderRefresh()
                         relatedAdapter.setData(related)
@@ -1611,18 +1657,41 @@ class VideoPlayerFragment : Fragment() {
 
             PlayerSessionCoordinator.ContinuationPlan.ExitPlayer -> {
                 AppLog.i(TAG, "autoplay plan=exit mode=$afterPlayMode hasNext=$hasNextEpisode nextCid=${nextEpisode?.cid}")
-                exitPlayerHost()
+                if (afterPlayMode != AfterPlayMode.NOTHING) {
+                    // 连播模式但取不到下一个（推荐空/队列空）：不再无声退出，展示播完推荐页兜底
+                    playbackEndPanelController.show()
+                } else {
+                    exitPlayerHost()
+                }
             }
 
             PlayerSessionCoordinator.ContinuationPlan.ShowController -> {
                 AppLog.i(TAG, "autoplay plan=show_controller mode=$afterPlayMode hasNext=$hasNextEpisode nextCid=${nextEpisode?.cid}")
-                playerView.showController()
+                if (afterPlayMode != AfterPlayMode.NOTHING) {
+                    playbackEndPanelController.show()
+                } else {
+                    playerView.showController()
+                }
             }
         }
     }
 
     private fun hideNextPreview() {
         autoPlayController.hideNextPreview()
+    }
+
+    /** 播放结束推荐页的重播：回到 0 从头播（ENDED 状态 seek 自动回 READY），复用用户 seek 的进度上报。 */
+    private fun replayCurrentVideo() {
+        val currentPlayer = player ?: return
+        playbackEndPanelController.hide()
+        AppLog.i(TAG, "playback end panel: replay from start")
+        currentPlayer.seekTo(0)
+        if (currentPlayer.playbackState == Player.STATE_IDLE) {
+            currentPlayer.prepare()
+        }
+        currentPlayer.play()
+        viewModel.sponsorUserSeek(0)
+        restartProgressUpdates()
     }
 
     private fun isVideoBlockedByMinorProtection(video: VideoModel): Boolean {

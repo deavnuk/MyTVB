@@ -32,6 +32,7 @@ import com.mytvb.core.ui.base.VideoRecyclerViewTuning
 import com.mytvb.core.ui.base.adaptiveSpanCount
 import com.mytvb.core.ui.system.ViewUtils
 import com.mytvb.feature.user.FollowUserListFragment
+import com.mytvb.feature.player.progress.PlaybackProgressStore
 import com.mytvb.core.ui.layout.WrapContentGridLayoutManager
 import com.mytvb.core.ui.decoration.GridSpacingItemDecoration
 import com.mytvb.core.common.content.ContentFilter
@@ -143,6 +144,14 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
 
     private fun oldestMode(state: TabState): Boolean =
         state.kind == TabKind.VIDEO && order == OwnerListOrder.OLDEST
+
+    /** 有服务端进度（历史入口等）则尊重原值，否则用本地 bvid 兜底键进度（ms→秒）。 */
+    private fun fillLocalWatchProgress(video: VideoModel): VideoModel {
+        if (video.historyProgress > 0L || video.bvid.isBlank()) return video
+        val localProgressSec = PlaybackProgressStore.getPosition(video.bvid) / 1000L
+        if (localProgressSec <= 0L) return video
+        return video.copy(historyProgress = localProgressSec)
+    }
 
     /** 触底翻页方向：倒翻模式页码递减，其余递增。 */
     private fun advancePage() {
@@ -433,13 +442,16 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
             TabKind.VIDEO -> {
                 // 「最早发布」：投稿接口无正序参数，跳末页倒着翻（页内反转在回调处理）
                 if (oldestMode(state)) {
-                    if (state.totalCount <= 0) {
+                    // 首屏 = 总数尚未探得。不能用 page<=1 判首屏：倒翻推进到第 1 页时
+                    // 会被换成末页重拉，页码在末页与次页间震荡，列表反复 REPLACE 回顶
+                    val probing = state.totalCount <= 0
+                    if (probing) {
                         runCatching {
                             userRepository.getUserDynamic(mid, 1, 20).getOrThrow().data
                         }.getOrNull()?.let { state.totalCount = it.totalCount }
                     }
                     val maxPage = ((state.totalCount + 19) / 20).coerceAtLeast(1)
-                    val pn = if (page <= 1) maxPage else page.coerceAtMost(maxPage)
+                    val pn = if (probing) maxPage else page.coerceAtMost(maxPage)
                     state.page = pn
                     AppLog.d("UserSpace", "fetch oldest pn=$pn total=${state.totalCount}")
                     val data = userRepository.getUserDynamic(mid, pn, 20).getOrThrow().data
@@ -501,8 +513,12 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
 
                 val videos = ContentFilter.filterVideos(requireContext(), pageData.videos)
                     .let { if (oldestMode(state)) it.reversed() else it }
+                    // 本地播放进度填充（不发请求的本地易判断项）：空间接口不带进度，
+                    // 用 PlaybackProgressStore 的 bvid 兜底键显示「看到哪了」（>95% 已看完的由 Store 清除不显示）
+                    .map(::fillLocalWatchProgress)
                 state.hasMore = pageData.hasMore
-                val isFirstBatch = pageToLoad == 1 || state.items.isEmpty()
+                // 首批判定只看列表是否已空：倒翻末批页码是 1，若按页码判会走 REPLACE 重置滚动位置
+                val isFirstBatch = state.items.isEmpty()
                 if (isFirstBatch) {
                     state.loadedFirstPage = true
                     state.items = videos.toMutableList()
@@ -544,7 +560,7 @@ class UserSpaceFragment : BaseFragment<FragmentUserSpaceBinding>(), com.mytvb.ui
                     tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                 }
                 updateEmptyState()
-                if (!hasRequestedInitialFocus && pageToLoad == 1) {
+                if (!hasRequestedInitialFocus && isFirstBatch) {
                     hasRequestedInitialFocus = true
                     requestHeaderFocus(FocusArea.BACK)
                 } else if (lastFocusedArea == FocusArea.CONTENT) {

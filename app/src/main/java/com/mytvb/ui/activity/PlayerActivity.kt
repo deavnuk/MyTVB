@@ -281,6 +281,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private var latestControllerVisibility: Int = View.GONE
     private var latestPlaybackPositionMs: Long = 0L
     private var latestPlaybackDurationMs: Long = 0L
+    // 空降助手静音片段：记录原音量与恢复点，播放到片段尾（或状态归 Hidden/释放播放器）恢复
+    private var sponsorMutedOriginalVolume: Float? = null
+    private var sponsorMuteRestoreAtMs: Long? = null
 
     /** 青少年模式累计观看时长定时器：每 15 秒结算一次，达上限触发休息退出。 */
     private val teenModeHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -358,6 +361,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         publishProgressStateProvider = { bottomProgressBar.isVisible },
         onProgressPublished = { positionMs, durationMs, publishProgressState ->
             viewModel.updatePlaybackPosition(positionMs, durationMs, publishProgressState)
+            // 空降静音片段到点恢复（独立于 publish 节奏，每轮 500ms 检查）
+            val restoreAt = sponsorMuteRestoreAtMs
+            if (restoreAt != null && positionMs >= restoreAt) {
+                restoreSponsorMuteVolumeIfNeeded()
+            }
             if (publishProgressState) {
                 latestPlaybackPositionMs = positionMs.coerceAtLeast(0L)
                 latestPlaybackDurationMs = durationMs.coerceAtLeast(0L)
@@ -377,6 +385,25 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     )
 
     private fun cancelResume(): Boolean = resumeHintController.cancelResume()
+
+    /** 空降静音片段开始/顺延：首次记录原音量并置 0，之后仅顺延恢复点。 */
+    private fun applySponsorMute(segment: com.mytvb.feature.player.sponsor.SponsorSegment) {
+        val currentPlayer = player ?: return
+        if (sponsorMutedOriginalVolume == null) {
+            sponsorMutedOriginalVolume = currentPlayer.volume
+            currentPlayer.volume = 0f
+            toast(getString(R.string.player_mute_segment_toast_format, segment.categoryName()))
+        }
+        sponsorMuteRestoreAtMs = segment.endTimeMs
+    }
+
+    /** 恢复空降静音的原音量（到点/换视频/手动 seek/释放播放器四路兜底共用）。 */
+    private fun restoreSponsorMuteVolumeIfNeeded() {
+        val original = sponsorMutedOriginalVolume ?: return
+        player?.volume = original
+        sponsorMutedOriginalVolume = null
+        sponsorMuteRestoreAtMs = null
+    }
 
     private val playerPerfListener = object : AnalyticsListener {
         override fun onLoadStarted(
@@ -545,6 +572,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     playerView.pauseDanmaku()
                 }
             }
+            // CDN 健康分事件回流（READY/BUFFERING），seek 态由宿主判定后传入。
+            viewModel.reportCdnPlaybackState(playbackState, playerView.seekSession?.isActive() == true)
             syncPlaybackEnvironment()
         }
 
@@ -1491,11 +1520,17 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         lifecycleScope.launch {
             viewModel.sponsorSkipState.collect { state ->
                 when (state) {
-                    is VideoPlayerViewModel.SponsorSkipUiState.Hidden -> {}
+                    is VideoPlayerViewModel.SponsorSkipUiState.Hidden -> {
+                        // 换视频/用户手动 seek 归位时兜底恢复音量
+                        restoreSponsorMuteVolumeIfNeeded()
+                    }
                     is VideoPlayerViewModel.SponsorSkipUiState.ShowButton -> {}
                     is VideoPlayerViewModel.SponsorSkipUiState.AutoSkipped -> {
                         toast(getString(R.string.activity_sponsor_skipped_format, state.segment.categoryName()))
-                        player?.seekTo(state.segment.endTimeMs)
+                        player?.seekTo(state.targetPositionMs)
+                    }
+                    is VideoPlayerViewModel.SponsorSkipUiState.Muted -> {
+                        applySponsorMute(state.segment)
                     }
                 }
             }
@@ -1617,6 +1652,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         player?.removeListener(playerListener)
         playerView.destroy()
         playerView.stopDanmaku()
+        // player 归还共享池前恢复空降静音的原音量，避免静音态串到下一个会话
+        restoreSponsorMuteVolumeIfNeeded()
         PlayerInstancePool.softDetach(player)
         lastKeepScreenOnState = false
         ViewUtils.keepScreenOn(this, false)

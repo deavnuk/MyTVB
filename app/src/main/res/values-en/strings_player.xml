@@ -43,6 +43,7 @@
 
     <!-- Player: SponsorBlock segments -->
     <string name="player_skip_segment_toast_format">Skipped: %1$s</string>
+    <string name="player_mute_segment_toast_format">Muted: %1$s</string>
     <string name="player_sponsor_category_sponsor">Sponsor</string>
     <string name="player_sponsor_category_intro">Intro</string>
     <string name="player_sponsor_category_outro">Outro</string>

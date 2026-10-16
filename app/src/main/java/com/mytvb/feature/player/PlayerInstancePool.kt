@@ -162,6 +162,20 @@ object PlayerInstancePool {
         return cid > 0L && key.substringAfter('#') == cid.toString()
     }
 
+    /**
+     * 池内 player 的实时播放位置（调用方须先经 [isAttachedCid] 确认位置归属）。
+     *
+     * 本地进度落盘用：VM 的 _currentPosition 只在 publishProgressState=true 时更新
+     * （PlayerActivity 宿主底部进度条设置关时播放中恒 false，位置仅暂停瞬间刷新），
+     * 直接读会拿到旧值/0，导致播放中的节拍保存失效、异常退出丢进度。
+     */
+    @Synchronized
+    fun attachedPlayerPositionMs(): Long? {
+        val player = cachedPlayer ?: return null
+        if (!isAttached) return null
+        return runCatching { player.currentPosition.coerceAtLeast(0L) }.getOrNull()
+    }
+
     @Synchronized
     fun softDetach(player: ExoPlayer?) {
         if (player == null || player !== cachedPlayer) return

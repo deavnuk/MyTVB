@@ -43,6 +43,7 @@
 
     <!-- 播放器：空降助手（跳過片段） -->
     <string name="player_skip_segment_toast_format">已跳過：%1$s</string>
+    <string name="player_mute_segment_toast_format">已靜音：%1$s</string>
     <string name="player_sponsor_category_sponsor">贊助/業配</string>
     <string name="player_sponsor_category_intro">過場/開場動畫</string>
     <string name="player_sponsor_category_outro">鳴謝/結束畫面</string>

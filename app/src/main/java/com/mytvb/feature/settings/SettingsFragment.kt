@@ -51,6 +51,7 @@ import com.mytvb.feature.player.PlayerInstancePool
 import com.mytvb.feature.player.VideoPlayerViewModel
 import com.mytvb.feature.player.cache.PlayerMediaCache
 import com.mytvb.feature.player.settings.AudioBalanceSettings
+import com.mytvb.feature.player.speed.PlaybackSpeedPolicy
 import com.mytvb.feature.player.sponsor.SponsorBlockRepository
 import com.mytvb.feature.player.view.MyPlayerSettingView
 import com.mytvb.core.common.ext.normalizeDanmakuSmartFilterValue
@@ -58,10 +59,9 @@ import com.mytvb.core.common.ext.localizedSettingLabel
 import com.mytvb.network.cookie.CookieManager
 import com.mytvb.ui.activity.MainActivity
 import com.mytvb.ui.activity.GaiaVgateActivity
-import com.mytvb.ui.widget.NonFocusableScrollView
+import com.mytvb.ui.dialog.UpdateFlowDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -137,6 +137,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_GAIA_VGATE_V_VOUCHER = "gaia_vgate_v_voucher"
         private const val KEY_GAIA_VGATE_V_VOUCHER_SAVED_AT_MS = "gaia_vgate_v_voucher_saved_at_ms"
         private const val KEY_IPV4_ONLY = "ipv4_only"
+        private const val KEY_CDN_HEALTH_ROUTING = "cdn_health_routing"
         private const val KEY_DOUYIN_MODE = "douyin_mode"
         private const val KEY_RESUME_PLAYBACK = "resume_playback"
         private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
@@ -195,7 +196,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
 
     private val updateScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val updateCheckState = MutableStateFlow<UpdateCheckState>(UpdateCheckState.Idle)
-    private var downloadJob: Job? = null
 
     private sealed interface UpdateCheckState {
         data object Idle : UpdateCheckState
@@ -274,6 +274,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             )),
             SettingGroup(R.string.setting_group_network, listOf(
                 stored(KEY_IPV4_ONLY, R.string.ipv4_only, "开"),
+                stored(KEY_CDN_HEALTH_ROUTING, R.string.cdn_health_routing, "开"),
                 plain(KEY_RISK_CONTROL, R.string.risk_control_verify, getString(R.string.risk_status_none))
             )),
             SettingGroup(R.string.setting_group_storage, listOf(
@@ -606,6 +607,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             KEY_GIVE_COIN_NUMBER -> showCommonChoiceDialog(key, arrayOf("1", "2"))
             // —— 通用·网络与账号 ——
             KEY_IPV4_ONLY -> toggle(key)
+            KEY_CDN_HEALTH_ROUTING -> toggle(key)
             KEY_RISK_CONTROL -> showRiskControlDialog()
             // —— 通用·存储 ——
             KEY_CLEAR_CACHE -> clearCache()
@@ -623,7 +625,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             KEY_SEAMLESS_QUALITY_SWITCH -> toggle(key)
             KEY_DEFAULT_AUDIO_TRACK -> showPlayerChoiceDialog(key, arrayOf("192kbps", "132kbps", "64kbps", "杜比全景声", "Hi-Res无损"))
             KEY_AUDIO_BALANCE -> showAudioBalanceChoiceDialog()
-            KEY_DEFAULT_PLAY_SPEED -> showPlayerChoiceDialog(key, arrayOf("0.25", "0.5", "0.75", "1.0", "1.25", "1.5", "2.0", "3.0"))
+            KEY_DEFAULT_PLAY_SPEED -> showPlayerChoiceDialog(key, PlaybackSpeedPolicy.storedSpeedOptions())
             KEY_MUSIC_ZONE_NORMAL_SPEED -> toggle(key)
             KEY_VIDEO_CODEC -> showPlayerChoiceDialog(key, arrayOf("AVC", "HEVC", "AV1"))
             KEY_SOFTWARE_VIDEO_DECODER -> toggle(key)
@@ -905,8 +907,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         }
     }
 
-    private var cachedReleaseInfo: ApkUpdater.ReleaseInfo? = null
-
     private fun checkForUpdate() {
         val cooldown = ApkUpdater.cooldownLeftMs()
         if (cooldown > 0) {
@@ -920,11 +920,18 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         updateScope.launch {
             try {
                 val releaseInfo = ApkUpdater.fetchLatestRelease()
-                cachedReleaseInfo = releaseInfo
                 if (ApkUpdater.isRemoteNewer(releaseInfo.versionName)) {
                     updateCheckState.value = UpdateCheckState.UpdateAvailable(releaseInfo.versionName)
                     updateUpdateEntry()
-                    showUpdateConfirmDialog(releaseInfo)
+                    UpdateFlowDialog.showConfirmDialog(
+                        context = requireContext(),
+                        releaseInfo = releaseInfo,
+                        scope = updateScope,
+                        listener = UpdateFlowDialog.Listener {
+                            updateCheckState.value = UpdateCheckState.Idle
+                            updateUpdateEntry()
+                        },
+                    )
                 } else {
                     updateCheckState.value = UpdateCheckState.Latest(releaseInfo.versionName)
                     updateUpdateEntry()
@@ -952,273 +959,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         refreshItem(KEY_CHECK_UPDATE)
     }
 
-    private fun showUpdateConfirmDialog(releaseInfo: ApkUpdater.ReleaseInfo) {
-        val px40 = resources.getDimensionPixelSize(R.dimen.px40)
-        val px35 = resources.getDimensionPixelSize(R.dimen.px35)
-        val px20 = resources.getDimensionPixelSize(R.dimen.px20)
-        val px18 = resources.getDimensionPixelSize(R.dimen.px18)
-        val px16 = resources.getDimensionPixelSize(R.dimen.px16)
-        val px14 = resources.getDimensionPixelSize(R.dimen.px14)
-        val px10 = resources.getDimensionPixelSize(R.dimen.px10)
-        val textColor = resources.getColor(R.color.textColor, null)
-
-        val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
-        dialog.setCanceledOnTouchOutside(true)
-
-        val root = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.dialog_background)
-            isClickable = true
-            isFocusable = false
-            isFocusableInTouchMode = false
-            setOnClickListener { dialog.dismiss() }
-        }
-
-        root.addView(ScaledTextView(requireContext()).apply {
-            text = getString(R.string.update_found_new)
-            setTextColor(textColor)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px36))
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px40, px35, px40, px20)
-            layoutParams = lp
-        })
-
-        root.addView(View(requireContext()).apply {
-            setBackgroundColor(0x1FFFFFFF)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, resources.getDimensionPixelSize(R.dimen.px2))
-            lp.setMargins(px18, 0, px18, 0)
-            layoutParams = lp
-        })
-
-        // 更新日志可能很长：正文钳到 55% 屏高转为滚动，避免整个弹窗高度超屏把按钮顶出屏幕。
-        // weight=1：部分系统（如华为 Android 10 电视）window WRAP_CONTENT 时会把超限内容的
-        // 尾部（按钮行）直接裁掉——weight 让正文吃剩余空间，标题与按钮行永远优先保留
-        val notesScroll = NonFocusableScrollView(requireContext()).apply {
-            maxHeight = (resources.displayMetrics.heightPixels * 0.55f).toInt()
-            // 滚动条常驻且加粗（内容不满 maxHeight 不显示，不会误显示），
-            // 上下渐隐边缘提示还有未滚到的内容
-            persistentScrollBar = true
-            // ScrollView 构造默认 focusable，不关掉会抢走弹窗初始焦点，按钮永远落不上
-            isFocusable = false
-            scrollBarWidth = resources.getDimensionPixelSize(R.dimen.px8)
-            isVerticalFadingEdgeEnabled = true
-            setFadingEdgeLength(resources.getDimensionPixelSize(R.dimen.px30))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px40, px20, px40, 0)
-            lp.weight = 1f
-            layoutParams = lp
-        }
-        notesScroll.addView(ScaledTextView(requireContext()).apply {
-            val notes = if (releaseInfo.releaseNotes.isNotBlank()) {
-                getString(R.string.update_release_notes_format, releaseInfo.releaseNotes)
-            } else ""
-            text = getString(
-                R.string.update_confirm_message_format,
-                BuildConfig.VERSION_NAME,
-                releaseInfo.versionName,
-                notes
-            )
-            setTextColor(textColor)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px30))
-            setLineSpacing(resources.getDimension(R.dimen.px6), 1f)
-        })
-        root.addView(notesScroll)
-
-        val actionContainer = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px18, px20, px18, px18)
-            layoutParams = lp
-        }
-
-        var cancelButton: ScaledTextView? = null
-        listOf(getString(R.string.cancel) to { dialog.dismiss() }, getString(R.string.update_download_action) to {
-            dialog.dismiss()
-            val apkUrl = cachedReleaseInfo?.apkUrl
-            if (apkUrl != null) startDownloadApk(apkUrl)
-        }).forEach { (text, action) ->
-            val button = ScaledTextView(requireContext()).apply {
-                this.text = text
-                setTextColor(textColor)
-                setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px32))
-                setPadding(px16, px14, px16, px14)
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { action() }
-                setBackgroundResource(R.drawable.bg_dialog_button)
-            }
-            if (text == getString(R.string.cancel)) cancelButton = button
-            actionContainer.addView(button, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(px10, 0, px10, 0)
-            })
-        }
-
-        root.addView(actionContainer)
-        DialogWindowFit.overlay(
-            dialog,
-            DialogWindowFit.wrapContentInScroll(requireContext(), root),
-            resources.getDimensionPixelSize(R.dimen.px800),
-            cancelOnOutside = false,
-            tag = "riskControl"
-        )
-        // 焦点在按钮上时 DPAD 上/下不会路由进 ScrollView，由弹窗层转发驱动正文滚动；
-        // 左右/确认/返回不拦，按钮焦点切换与关闭行为不受影响
-        dialog.setOnKeyListener { _, keyCode, event ->
-            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
-            val step = resources.getDimensionPixelSize(R.dimen.px120)
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_UP -> {
-                    notesScroll.smoothScrollBy(0, -step)
-                    true
-                }
-                KeyEvent.KEYCODE_DPAD_DOWN -> {
-                    notesScroll.smoothScrollBy(0, step)
-                    true
-                }
-                else -> false
-            }
-        }
-        dialog.show()
-        // TV 弹窗惯例显式落焦点（其余弹窗均有）：默认在「取消」安全侧，防误触直接开下载；
-        // 遥控器左右在两按钮间切换，上下滚正文。show 后立即调会被 ViewRootImpl 的
-        // 初始焦点分配覆盖，必须等首次布局完成
-        root.post {
-            cancelButton?.requestFocus()
-        }
-    }
-
-    private fun startDownloadApk(apkUrl: String) {
-        val px40 = resources.getDimensionPixelSize(R.dimen.px40)
-        val px35 = resources.getDimensionPixelSize(R.dimen.px35)
-        val px20 = resources.getDimensionPixelSize(R.dimen.px20)
-        val px18 = resources.getDimensionPixelSize(R.dimen.px18)
-        val px14 = resources.getDimensionPixelSize(R.dimen.px14)
-        val textColor = resources.getColor(R.color.textColor, null)
-
-        val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
-        dialog.setCancelable(false)
-        dialog.setCanceledOnTouchOutside(false)
-
-        val root = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.dialog_background)
-        }
-
-        val titleView = ScaledTextView(requireContext()).apply {
-            text = getString(R.string.update_downloading_title)
-            setTextColor(textColor)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px36))
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px40, px35, px40, px20)
-            layoutParams = lp
-        }
-        root.addView(titleView)
-
-        root.addView(View(requireContext()).apply {
-            setBackgroundColor(0x1FFFFFFF)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, resources.getDimensionPixelSize(R.dimen.px2))
-            lp.setMargins(px18, 0, px18, 0)
-            layoutParams = lp
-        })
-
-        val progressBar = ProgressBar(requireContext(), null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, resources.getDimensionPixelSize(R.dimen.px20))
-            lp.setMargins(px40, px20, px40, 0)
-            layoutParams = lp
-        }
-        root.addView(progressBar)
-
-        val progressText = ScaledTextView(requireContext()).apply {
-            text = getString(R.string.connecting)
-            setTextColor(textColor)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px26))
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px40, px14, px40, 0)
-            layoutParams = lp
-        }
-        root.addView(progressText)
-
-        val cancelButton = ScaledTextView(requireContext()).apply {
-            text = getString(R.string.cancel)
-            setTextColor(textColor)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px32))
-            setPadding(resources.getDimensionPixelSize(R.dimen.px16), px14, resources.getDimensionPixelSize(R.dimen.px16), px14)
-            isClickable = true
-            isFocusable = true
-            setBackgroundResource(R.drawable.bg_dialog_button)
-            setOnClickListener {
-                downloadJob?.cancel()
-                dialog.dismiss()
-                updateCheckState.value = UpdateCheckState.Idle
-                updateUpdateEntry()
-            }
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.setMargins(px18, px20, px18, px18)
-            lp.gravity = Gravity.END
-            layoutParams = lp
-        }
-        root.addView(cancelButton)
-
-        DialogWindowFit.overlay(
-            dialog,
-            DialogWindowFit.wrapContentInScroll(requireContext(), root),
-            resources.getDimensionPixelSize(R.dimen.px800),
-            tag = "apkDownload"
-        )
-        dialog.show()
-
-        downloadJob = updateScope.launch {
-            try {
-                val apkFile = withContext(Dispatchers.IO) {
-                    ApkUpdater.downloadApkToCache(requireContext(), apkUrl) { progress ->
-                        view?.post {
-                            if (!isAdded) return@post
-                            when (progress) {
-                                is ApkUpdater.Progress.Connecting -> {
-                                    progressText.text = getString(R.string.connecting)
-                                    progressBar.isIndeterminate = true
-                                }
-                                is ApkUpdater.Progress.Downloading -> {
-                                    progressBar.isIndeterminate = false
-                                    progress.percent?.let { progressBar.progress = it }
-                                    progressText.text = progress.hint
-                                }
-                                is ApkUpdater.Progress.Done -> {}
-                                is ApkUpdater.Progress.Retrying -> {
-                                    progressText.text = getString(R.string.retrying_format, progress.attempt, progress.maxAttempts)
-                                    progressBar.isIndeterminate = true
-                                }
-                            }
-                        }
-                    }
-                }
-                dialog.dismiss()
-                ApkUpdater.installApk(requireContext(), apkFile)
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) return@launch
-                dialog.dismiss()
-                AppLog.e("SettingsFragment", "download apk failed", e)
-                val hint = when (e) {
-                    is java.net.SocketTimeoutException -> getString(R.string.net_timeout_toast)
-                    is java.net.UnknownHostException -> getString(R.string.net_unavailable_toast)
-                    is java.io.IOException -> getString(R.string.net_error_toast)
-                    else -> getString(R.string.download_failed_toast)
-                }
-                AppToast.show(requireContext(), hint, Toast.LENGTH_LONG)
-                updateCheckState.value = UpdateCheckState.Idle
-                updateUpdateEntry()
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
-        downloadJob?.cancel()
+        // 下载 job 挂在 updateScope 上（UpdateFlowDialog），取消 scope 即连带取消
         updateScope.cancel()
     }
 
@@ -1343,6 +1086,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applyStored(KEY_DOUYIN_MODE)
         applyStored(KEY_GIVE_COIN_NUMBER)
         applyStored(KEY_IPV4_ONLY)
+        applyStored(KEY_CDN_HEALTH_ROUTING)
 
         // —— 显示 ——
         val theme = appSettings.getCachedInt("theme", 1)

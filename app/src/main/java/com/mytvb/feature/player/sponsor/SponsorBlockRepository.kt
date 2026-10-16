@@ -190,16 +190,19 @@ object SponsorBlockRepository {
             ?: emptyList()
     }
 
-    private fun normalizeSegments(
+    internal fun normalizeSegments(
         segments: List<SponsorSegment>
     ): List<SponsorSegment> {
         return segments
-            .filter { it.isSkipType && it.endTimeMs > it.startTimeMs }
+            .filter { (it.isSkipType || it.isMuteType) && it.endTimeMs > it.startTimeMs }
             .groupBy { it.UUID.ifBlank { "${it.category}:${it.startTimeMs}:${it.endTimeMs}" } }
             .mapNotNull { (_, duplicates) ->
+                // 同组重叠片段按 锁定 > 票数 > 起点更早 > 片段更短 取一条代表
                 duplicates.maxWithOrNull(
                     compareBy<SponsorSegment> { it.locked }
                         .thenBy { it.votes }
+                        .thenBy { -it.startTimeMs }
+                        .thenBy { -(it.endTimeMs - it.startTimeMs) }
                 )
             }
             .sortedBy { it.startTimeMs }

@@ -3,6 +3,7 @@ package com.mytvb.feature.player.settings
 import android.content.Context
 import com.mytvb.core.common.media.VideoCodecSupport
 import com.mytvb.core.common.settings.AppSettingsDataStore
+import com.mytvb.feature.player.speed.PlaybackSpeedPolicy
 import com.mytvb.model.video.quality.AudioQuality
 import com.mytvb.model.video.quality.VideoCodecEnum
 import org.koin.mp.KoinPlatform
@@ -166,10 +167,12 @@ object PlayerSettingsStore {
             defaultAudioQualityId = parseAudioQualityId(
                 readSetting(KEY_DEFAULT_AUDIO_TRACK)
             ),
-            defaultPlaybackSpeed = readSetting(KEY_DEFAULT_PLAY_SPEED)
-                ?.toFloatOrNull()
-                ?.takeIf { it > 0f }
-                ?: 1.0f,
+            defaultPlaybackSpeed = PlaybackSpeedPolicy.nearestPlaybackSpeed(
+                readSetting(KEY_DEFAULT_PLAY_SPEED)
+                    ?.toFloatOrNull()
+                    ?.takeIf { it > 0f }
+                    ?: 1.0f
+            ),
             defaultVideoCodec = parseVideoCodec(
                 readSetting(KEY_VIDEO_CODEC),
                 context

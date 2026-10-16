@@ -16,6 +16,8 @@ data class SponsorSegment(
     val startTimeMs: Long get() = ((segment.getOrNull(0) ?: 0f) * 1000).toLong()
     val endTimeMs: Long get() = ((segment.getOrNull(1) ?: 0f) * 1000).toLong()
     val isSkipType: Boolean get() = actionType == "skip"
+    /** 静音型片段：进入后仅静音不跳转，播放到片段尾自动恢复音量。 */
+    val isMuteType: Boolean get() = actionType == "mute"
 
     /** 本地化类别的显示名（推荐 UI 层使用）。 */
     fun categoryName(context: Context): String = when (category) {

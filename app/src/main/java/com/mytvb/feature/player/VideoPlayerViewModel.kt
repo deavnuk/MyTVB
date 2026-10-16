@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -28,6 +29,7 @@ import com.mytvb.feature.player.interaction.InteractionEngine
 import com.mytvb.feature.player.interaction.InteractionRepository
 import com.mytvb.model.player.PlayInfoModel
 import com.mytvb.model.player.VideoSnapshotData
+import com.mytvb.model.player.ViewPoint
 import com.mytvb.model.subtitle.SubtitleData
 import com.mytvb.model.subtitle.SubtitleInfoModel
 import com.mytvb.model.subtitle.SubtitleItem
@@ -65,9 +67,12 @@ import org.koin.mp.KoinPlatform
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
+import com.mytvb.feature.player.progress.PlaybackProgressStore
+import com.mytvb.feature.player.progress.PlaybackResumePositionPolicy
 import com.mytvb.feature.player.sponsor.AvToBv
 import com.mytvb.feature.player.sponsor.SponsorBlockUseCase
 import com.mytvb.feature.player.sponsor.SponsorSegment
+import com.mytvb.feature.player.sponsor.SponsorSkipTargetPolicy
 
 @UnstableApi
 class VideoPlayerViewModel(
@@ -93,6 +98,8 @@ class VideoPlayerViewModel(
         private const val TAG = "VideoPlayerViewModel"
         private const val FIRST_FRAME_DEFERRED_WORK_DELAY_MS = 250L
         private const val FIRST_FRAME_SPONSOR_LOAD_DELAY_MS = 1_500L
+        // 起播首帧看门狗：prepare 后超过该时长仍未 READY 即判定首帧超时，提前触发换线。
+        private const val FIRST_FRAME_WATCHDOG_TIMEOUT_MS = 2_500L
         private const val ONLINE_WATCHING_REFRESH_MS = 60_000L
         private const val ONLINE_WATCHING_TICK_MS = 1_000L
 
@@ -445,7 +452,10 @@ class VideoPlayerViewModel(
     sealed interface SponsorSkipUiState {
         data object Hidden : SponsorSkipUiState
         data class ShowButton(val segment: SponsorSegment) : SponsorSkipUiState
-        data class AutoSkipped(val segment: SponsorSegment) : SponsorSkipUiState
+        /** targetPositionMs 为经尾部钳制后的实际跳转目标（非片段原始 endTimeMs）。 */
+        data class AutoSkipped(val segment: SponsorSegment, val targetPositionMs: Long) : SponsorSkipUiState
+        /** 静音型片段：到 endTimeMs 自动恢复音量，连续片段由 UI 侧顺延恢复点。 */
+        data class Muted(val segment: SponsorSegment) : SponsorSkipUiState
     }
 
     private val _sponsorSkipState = MutableStateFlow<SponsorSkipUiState>(SponsorSkipUiState.Hidden)
@@ -458,6 +468,9 @@ class VideoPlayerViewModel(
 
     private val _sponsorSegments = MutableStateFlow<List<SponsorSegment>>(emptyList())
     val sponsorSegments: StateFlow<List<SponsorSegment>> = _sponsorSegments
+
+    private val _viewPoints = MutableStateFlow<List<ViewPoint>>(emptyList())
+    val viewPoints: StateFlow<List<ViewPoint>> = _viewPoints
 
     private val _duration = MutableStateFlow(0L)
     val duration: StateFlow<Long> = _duration
@@ -701,6 +714,7 @@ class VideoPlayerViewModel(
         // ===== UI/派发写 =====
         override fun emitPlaybackRequest(request: PlaybackRequest) {
             _playbackRequest.value = request
+            armFirstFrameWatchdog(request)
         }
 
         override fun setSelectedCodec(codec: VideoCodecEnum) {
@@ -763,6 +777,11 @@ class VideoPlayerViewModel(
     // 当前激活播放使用的 CDN failover state（video + audio 各一个，最多 2 个）。
     // 卡顿时由 PlaybackFallbackController 通过 FallbackContext 读取并调 penalizeCurrentHost 降权。
     private var currentCdnStates: List<VideoPlayerCdnFailoverState> = emptyList()
+    // 首帧看门狗：每次发布 PlaybackRequest 后 arm，READY/首帧/错误时 disarm；
+    // 超时说明起播线路卡死（stall 检测不覆盖 BUFFERING 态），提前触发换线救援。
+    private var firstFrameWatchdogJob: Job? = null
+    // 本播放会话（当前 MediaSource）是否已记过 READY 健康分；同时用于区分起播与播放中途 rebuffer。
+    private var cdnSessionReadyRecorded: Boolean = false
     private var preloadedPlayback: PreloadedPlayback? = null
     private var preloadingIdentity: PlayRequestIdentity? = null
     private var preloadJob: Job? = null
@@ -1023,6 +1042,7 @@ class VideoPlayerViewModel(
             sponsorBlockUseCase.reset()
             _sponsorSkipState.value = SponsorSkipUiState.Hidden
             _sponsorSegments.value = emptyList()
+            _viewPoints.value = emptyList()
             danmakuController.resetDmMask()
             _interactionModel.value = null
             _interactionHiddenVars.value = null
@@ -1154,6 +1174,7 @@ class VideoPlayerViewModel(
         sponsorBlockUseCase.reset()
         _sponsorSkipState.value = SponsorSkipUiState.Hidden
         _sponsorSegments.value = emptyList()
+        _viewPoints.value = emptyList()
         prepareDeferredSponsorLoad(
             bvid = currentBvid,
             cid = currentCid,
@@ -1211,6 +1232,7 @@ class VideoPlayerViewModel(
         sponsorBlockUseCase.reset()
         _sponsorSkipState.value = SponsorSkipUiState.Hidden
         _sponsorSegments.value = emptyList()
+        _viewPoints.value = emptyList()
         prepareDeferredSponsorLoad(
             bvid = currentBvid,
             cid = currentCid,
@@ -1641,7 +1663,28 @@ class VideoPlayerViewModel(
             )
             return
         }
+        saveLocalPlaybackProgress()
         heartbeatReporter.reportPlaybackHeartbeat(playType, force)
+    }
+
+    /**
+     * 本地播放进度落盘（跟随心跳 2s 节拍，force 收尾时同链路再存一次）：
+     * 供续播插层与 UP 空间卡片进度显示；>95% 视为看完由 Store 在 save 路径清除。
+     */
+    private fun saveLocalPlaybackProgress() {
+        val bvid = currentBvid
+        if (bvid.isNullOrBlank() || currentCid <= 0L) {
+            AppLog.i(TAG, "local_progress_skip no_identity bvid=$bvid cid=$currentCid")
+            return
+        }
+        val positionMs = PlayerInstancePool.attachedPlayerPositionMs()
+            ?: _currentPosition.value
+        if (positionMs < 5000L) {
+            AppLog.i(TAG, "local_progress_skip pos_too_small cid=$currentCid pos=$positionMs")
+            return
+        }
+        PlaybackProgressStore.savePosition(bvid, currentCid, positionMs, duration.value)
+        AppLog.i(TAG, "local_progress_saved bvid=$bvid cid=$currentCid pos=$positionMs dur=${duration.value}")
     }
 
     private fun rebuildPlayback() {
@@ -1753,7 +1796,7 @@ class VideoPlayerViewModel(
             playbackIntentId = activePlaybackIntentId,
             startupTraceId = currentStartupTraceId,
             startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
-        )
+        ).also { armFirstFrameWatchdog(it) }
     }
 
     private fun loadPlayUrl(
@@ -2020,7 +2063,7 @@ class VideoPlayerViewModel(
                     playbackIntentId = activePlaybackIntentId,
                     startupTraceId = currentStartupTraceId,
                     startupTraceStartElapsedMs = currentStartupTraceStartElapsedMs
-                )
+                ).also { armFirstFrameWatchdog(it) }
                 _error.value = null
                 if (resumePositionMs != null) {
                     didApplyLastPlayPosition = true
@@ -2732,10 +2775,19 @@ class VideoPlayerViewModel(
                 initialPlayInfo.lastPlayCid == identity.cid &&
                 initialPlayInfo.lastPlayTime > 5000L
 
-            val rawResumePosition = when {
-                useServerResume -> initialPlayInfo.lastPlayTime
-                else -> playbackPositionMs
+            // 续播候选：入口历史快照 / 本地进度 / 服务端 lastPlayTime 三者取最远者（防任一侧滞后回退）。
+            // 本地进度按 cid 精确键读取；>95% 看完归零与尾部钳制由 Policy 统一处理。
+            val localResumeMs = if (effectivePreferLastPlayTime && !identity.bvid.isNullOrBlank()) {
+                PlaybackProgressStore.getPosition(identity.bvid!!, identity.cid)
+            } else {
+                0L
             }
+            val rawResumePosition = PlaybackResumePositionPolicy.resolveResumePositionMs(
+                entryMs = playbackPositionMs,
+                localMs = localResumeMs,
+                serverMs = if (useServerResume) initialPlayInfo.lastPlayTime else 0L,
+                durationMs = initialPlayInfo.timeLength
+            )
 
             val shouldResume = (replaceInPlace && playbackPositionMs > 0L) ||
                 (effectivePreferLastPlayTime &&
@@ -2812,7 +2864,7 @@ class VideoPlayerViewModel(
             continuationIntentId = preparedPlayback.continuationIntentId,
             startupTraceId = preparedPlayback.startupTraceId,
             startupTraceStartElapsedMs = preparedPlayback.startupTraceStartElapsedMs
-        )
+        ).also { armFirstFrameWatchdog(it) }
         if (pendingContinuationIntentId == preparedPlayback.continuationIntentId) {
             pendingContinuationIntentId = null
         }
@@ -2902,6 +2954,8 @@ class VideoPlayerViewModel(
 
     fun onPlaybackFirstFrame() {
         hasReachedFirstFrame = true
+        // 渲染首帧必然已过看门狗关注的起播阶段，双保险 disarm（正常路径在 STATE_READY 已停）。
+        disarmFirstFrameWatchdog()
         val cid = currentCid.takeIf { it > 0L }
         if (cid == null) return
         if (danmakuController.loadedCid != cid) {
@@ -2992,11 +3046,68 @@ class VideoPlayerViewModel(
         }
     }
 
-    fun handlePlaybackError(error: androidx.media3.common.PlaybackException, currentPositionMs: Long) =
+    fun handlePlaybackError(error: androidx.media3.common.PlaybackException, currentPositionMs: Long) {
+        // 错误链即将换线重建：先停看门狗，避免错误重建与 2.5s 看门狗双触发竞争。
+        disarmFirstFrameWatchdog()
         fallbackController.handlePlaybackError(error, currentPositionMs)
+    }
 
     fun handlePlaybackStall(positionMs: Long, stalledMs: Long): Boolean =
         fallbackController.handlePlaybackStall(positionMs, stalledMs)
+
+    /**
+     * 双宿主 onPlaybackStateChanged 的 CDN 健康分回流：
+     * READY 首次记成功(+25)；BUFFERING 只记播放中途的 rebuffer(-55)——
+     * 起播阶段（未 READY 过）由首帧看门狗负责，seek 引起的缓冲不是线路的锅。
+     * 只归因到 video 主承载流的 state（states 首位），不给其余清晰度/音轨候选洗白。
+     * 同 host 的节流在 CdnHealthProfile 内部（30s 一条）。
+     */
+    fun reportCdnPlaybackState(playbackState: Int, isSeeking: Boolean) {
+        when (playbackState) {
+            Player.STATE_READY -> {
+                disarmFirstFrameWatchdog()
+                if (cdnSessionReadyRecorded) return
+                cdnSessionReadyRecorded = true
+                currentCdnStates.firstOrNull()?.currentHostUrl()?.let { url ->
+                    CdnHealthProfile.recordEvent(url, CdnHealthProfile.CdnHealthEvent.READY)
+                }
+            }
+            Player.STATE_BUFFERING -> {
+                if (isSeeking || !cdnSessionReadyRecorded) return
+                currentCdnStates.firstOrNull()?.currentHostUrl()?.let { url ->
+                    CdnHealthProfile.recordEvent(url, CdnHealthProfile.CdnHealthEvent.BUFFERING)
+                }
+            }
+        }
+    }
+
+    /** 起播后 2.5s 未 READY 视为首帧超时：记健康分并触发换线（对齐 BiliPai 看门狗）。 */
+    private fun armFirstFrameWatchdog(request: PlaybackRequest) {
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
+        cdnSessionReadyRecorded = false
+        // 暂停态请求不会自然出首帧，监控无意义且换线 dispatch 会强制 playWhenReady=true，
+        // 把暂停中的视频误播起来。
+        if (!request.playWhenReady) return
+        val resumePositionMs = request.seekPositionMs
+        firstFrameWatchdogJob = viewModelScope.launch {
+            delay(FIRST_FRAME_WATCHDOG_TIMEOUT_MS)
+            AppLog.w(
+                "PlaybackCdn",
+                "cdn_health first_frame_timeout watchdog fired resumeMs=$resumePositionMs " +
+                    "cdnStates=${currentCdnStates.size}"
+            )
+            if (!fallbackController.handleFirstFrameTimeout(resumePositionMs)) {
+                // 换线与刷新都未派发（候选/重试耗尽）：放回原链，等 read 超时错误兜底。
+                AppLog.w("PlaybackCdn", "first_frame_timeout: no fallback dispatched, wait for error chain")
+            }
+        }
+    }
+
+    private fun disarmFirstFrameWatchdog() {
+        firstFrameWatchdogJob?.cancel()
+        firstFrameWatchdogJob = null
+    }
 
 
     private fun currentPlayRequestIdentity(): PlayRequestIdentity? {
@@ -3264,6 +3375,7 @@ class VideoPlayerViewModel(
                 } else {
                     danmakuController.applyDmMask(null)
                 }
+                _viewPoints.value = wrapper.viewPoints.orEmpty()
             } ?: AppLog.e(TAG, "loadPlayerExtras failed: cid=$cid")
 
             val snapshot = snapshotDeferred.await()
@@ -3440,9 +3552,28 @@ class VideoPlayerViewModel(
                 }
             }
             result.action == SponsorBlockUseCase.SkipAction.AUTO_SKIP -> {
-                _sponsorSkipState.value = SponsorSkipUiState.AutoSkipped(result.segment)
-                pendingSeekPositionMs = result.segment.endTimeMs
+                val targetMs = SponsorSkipTargetPolicy.resolveSkipTargetPositionMs(
+                    requestedMs = result.segment.endTimeMs,
+                    durationMs = duration.value,
+                    category = result.segment.category
+                )
+                AppLog.i(
+                    TAG,
+                    "sponsor_auto_skip category=${result.segment.category} " +
+                        "range=[${result.segment.startTimeMs},${result.segment.endTimeMs}] " +
+                        "targetMs=$targetMs durationMs=${duration.value}"
+                )
+                _sponsorSkipState.value = SponsorSkipUiState.AutoSkipped(result.segment, targetMs)
+                pendingSeekPositionMs = targetMs
                 sponsorSkipPending = true
+            }
+            result.action == SponsorBlockUseCase.SkipAction.MUTE -> {
+                AppLog.i(
+                    TAG,
+                    "sponsor_mute category=${result.segment.category} " +
+                        "untilMs=${result.segment.endTimeMs}"
+                )
+                _sponsorSkipState.value = SponsorSkipUiState.Muted(result.segment)
             }
             result.action == SponsorBlockUseCase.SkipAction.SHOW_BUTTON -> {
                 _sponsorSkipState.value = SponsorSkipUiState.ShowButton(result.segment)

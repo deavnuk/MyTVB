@@ -11,7 +11,7 @@ class SponsorBlockUseCase {
         private const val SEEK_BACK_THRESHOLD_MS = 2000L
     }
 
-    enum class SkipAction { AUTO_SKIP, SHOW_BUTTON }
+    enum class SkipAction { AUTO_SKIP, SHOW_BUTTON, MUTE }
 
     data class SkipResult(
         val segment: SponsorSegment,
@@ -40,6 +40,12 @@ class SponsorBlockUseCase {
             AppLog.e(TAG, "加载空降片段失败: ${e.javaClass.simpleName}: ${e.message}", e)
             lastError = "空降助手加载失败"
         }
+    }
+
+    /** 单测注入：绕过网络直接装载已归一化的片段（按 Repository 口径先排序）。 */
+    internal fun loadForTest(rawSegments: List<SponsorSegment>) {
+        reset()
+        segments = rawSegments.sortedBy { it.startTimeMs }
     }
 
     fun checkPosition(positionMs: Long, autoSkip: Boolean): SkipResult? {
@@ -76,13 +82,20 @@ class SponsorBlockUseCase {
         // 只在向前播放跨入片段起点时自动跳过，回退进片段内不触发
         val justEntered = !isGracePeriod && prevMs <= segment.startTimeMs && positionMs > segment.startTimeMs
 
-        val action = if (autoSkip && justEntered) {
-            skippedIds.add(segment.UUID)
-            lastAutoSkipTime = System.currentTimeMillis()
-            nextSegmentIndex++
-            SkipAction.AUTO_SKIP
-        } else {
-            SkipAction.SHOW_BUTTON
+        val action = when {
+            autoSkip && justEntered && segment.isMuteType -> {
+                skippedIds.add(segment.UUID)
+                nextSegmentIndex++
+                // 静音不 seek、无位置 glitch，无需进入宽限期
+                SkipAction.MUTE
+            }
+            autoSkip && justEntered -> {
+                skippedIds.add(segment.UUID)
+                lastAutoSkipTime = System.currentTimeMillis()
+                nextSegmentIndex++
+                SkipAction.AUTO_SKIP
+            }
+            else -> SkipAction.SHOW_BUTTON
         }
 
         return SkipResult(segment, action)

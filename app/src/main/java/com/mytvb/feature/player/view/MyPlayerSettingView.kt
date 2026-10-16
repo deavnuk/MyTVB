@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mytvb.R
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.feature.player.settings.AfterPlayMode
+import com.mytvb.feature.player.speed.PlaybackSpeedPolicy
 import com.mytvb.feature.player.LiveLineInfo
 import com.mytvb.feature.player.LiveQualityInfo
 import com.mytvb.model.dm.DmScreenArea
@@ -34,7 +35,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
 
     companion object {
         private const val SETTING_FOCUS_LOG_ENABLED = false
-        internal val PLAYBACK_SPEEDS = floatArrayOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+        internal val PLAYBACK_SPEEDS: FloatArray = PlaybackSpeedPolicy.DEFAULT_PLAYBACK_SPEED_OPTIONS
         internal val DM_ALPHA_VALUES = floatArrayOf(0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f)
         // 30-55 为历史档位；56-100 供超宽/低密度屏（如 5120×1600）放大使用
         /** 弹幕字号档位：30~60 步进 2（16 档，视觉放大由引擎 toBlblTextScale 档位系数承担）。 */

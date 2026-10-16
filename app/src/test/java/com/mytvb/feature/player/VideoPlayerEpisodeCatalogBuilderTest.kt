@@ -8,6 +8,7 @@ import com.mytvb.model.video.detail.UgcSection
 import com.mytvb.model.video.detail.VideoDetailModel
 import com.mytvb.model.video.detail.VideoView
 import com.mytvb.network.api.ApiService
+import android.content.Context
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -15,7 +16,7 @@ import org.junit.Test
 
 class VideoPlayerEpisodeCatalogBuilderTest {
 
-    private val builder = VideoPlayerEpisodeCatalogBuilder(unusedApiService())
+    private val builder = VideoPlayerEpisodeCatalogBuilder(unusedApiService(), unusedContext())
 
     @Test
     fun ugcSeasonMergesAndSortsSplitPagesFromSameArchive() = runBlocking {
@@ -107,5 +108,21 @@ class VideoPlayerEpisodeCatalogBuilderTest {
         ) { _, method, _ ->
             error("Unexpected ApiService call: ${method.name}")
         } as ApiService
+    }
+
+    /** Builder 用 context.getString 组装分 P 副标题；getString 为 final，纯 JVM 下只能 Mockito 拦截，
+     *  按 player_total_p_format（"共 %1$d P"）的格式化语义回放。 */
+    private fun unusedContext(): Context {
+        val context = org.mockito.Mockito.mock(Context::class.java)
+        org.mockito.Mockito.`when`(
+            context.getString(
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.any<Int>()
+            )
+        ).thenAnswer { invocation ->
+            val count = invocation.getArgument<Int>(1)
+            "共 $count P"
+        }
+        return context
     }
 }

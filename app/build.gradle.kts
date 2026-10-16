@@ -136,7 +136,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    
+
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -315,6 +315,8 @@ dependencies {
     implementation("com.google.zxing:core:3.5.2")
 
     testImplementation("junit:junit:4.13.2")
+    // 纯 JVM 单测中 stub Context 等含 final 方法的 Android 类（mockable jar 无法被子类覆写）
+    testImplementation("org.mockito:mockito-core:5.14.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.1.5")
 }

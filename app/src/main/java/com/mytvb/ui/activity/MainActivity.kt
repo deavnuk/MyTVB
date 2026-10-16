@@ -45,6 +45,8 @@ import com.mytvb.ui.dialog.UserInfoDialog
 import com.mytvb.feature.player.PlayerInstancePool
 import com.mytvb.feature.player.VideoPlayerFragment
 import com.mytvb.core.common.log.AppLog
+import com.mytvb.core.common.update.ApkUpdater
+import com.mytvb.ui.dialog.UpdateFlowDialog
 import com.mytvb.core.common.net.NetworkRecoveryMonitor
 import com.mytvb.core.ui.navigation.TabBarView
 import com.mytvb.core.common.content.ContentFilter
@@ -651,7 +653,39 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                     runCatching { sessionGateway.ensureWbiKeys() }
                 }
             }
+            // 启动自动检查更新：放 refreshAvatar(4s) 之后错峰，不抢启动期网络。
+            // GitHub API 国内可达性一般，3 次重试全在后台协程，拖多久都不影响前台
+            .addTask("autoUpdateCheck", AppStartupScheduler.Phase.DELAYED, delayMs = 6000L) {
+                lifecycleScope.launch { checkUpdateOnStartup() }
+            }
             .execute()
+    }
+
+    /**
+     * 启动后静默检查更新：有新版本且未被用户「稍后」忽略时自动弹确认弹窗。
+     * 任何失败只记日志不打扰用户；设置页手动检查正在弹窗/下载时直接避让。
+     */
+    private suspend fun checkUpdateOnStartup() {
+        if (UpdateFlowDialog.isBusy) return
+        try {
+            val releaseInfo = ApkUpdater.fetchLatestRelease()
+            if (!ApkUpdater.isRemoteNewer(releaseInfo.versionName)) return
+            if (appSettings.getCachedString(ApkUpdater.KEY_IGNORED_VERSION) == releaseInfo.versionName) return
+            // fetch 期间用户可能已进设置手动检查弹窗，落弹窗前再守一次
+            if (UpdateFlowDialog.isBusy) return
+            UpdateFlowDialog.showConfirmDialog(
+                context = this@MainActivity,
+                releaseInfo = releaseInfo,
+                scope = lifecycleScope,
+                cancelTextRes = R.string.update_later,
+                onDismissedWithoutDownload = {
+                    appSettings.putStringAsync(ApkUpdater.KEY_IGNORED_VERSION, releaseInfo.versionName)
+                },
+            )
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            AppLog.w("MainActivity", "startup update check failed: ${e.message}")
+        }
     }
 
     fun focusLeftFunctionArea(sourceView: View? = currentFocus): Boolean {

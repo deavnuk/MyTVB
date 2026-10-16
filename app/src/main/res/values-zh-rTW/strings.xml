@@ -388,6 +388,7 @@
     <string name="x5_status_cancelled">已取消</string>
     <string name="update_found_new">發現新版本</string>
     <string name="update_download_action">下載更新</string>
+    <string name="update_later">稍後</string>
     <string name="update_downloading_title">正在下載更新</string>
     <string name="connecting">連線中…</string>
     <string name="retrying_format">連線失敗，正在重試（%1$d/%2$d）…</string>

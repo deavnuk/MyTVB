@@ -78,7 +78,7 @@ jobs:
             echo "VERSION_CHANGED=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build Release & Debug APK
+      - name: Build Release APK
         if: steps.check_version.outputs.VERSION_CHANGED == 'true'
         env:
           KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
@@ -88,7 +88,7 @@ jobs:
         run: |
           KEYSTORE_PATH="$GITHUB_WORKSPACE/app/keystore.jks"
           printf '%s' "$KEYSTORE_FILE" | base64 -d > "$KEYSTORE_PATH"
-          ./gradlew assembleReleaseRenamed assembleDebugRenamed \
+          ./gradlew assembleReleaseRenamed \
             -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
             -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
             -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
@@ -100,13 +100,6 @@ jobs:
         with:
           name: MyTVB-v${{ steps.get_version.outputs.VERSION_NAME }}-release
           path: app/build/outputs/renamed_apk/release/MyTVB-v${{ steps.get_version.outputs.VERSION_NAME }}-release.apk
-
-      - name: Upload Debug APK
-        if: steps.check_version.outputs.VERSION_CHANGED == 'true'
-        uses: actions/upload-artifact@v6
-        with:
-          name: MyTVB-v${{ steps.get_version.outputs.VERSION_NAME }}-debug
-          path: app/build/outputs/renamed_apk/debug/MyTVB-v${{ steps.get_version.outputs.VERSION_NAME }}-debug.apk
 
       - name: Extract changelog
         if: steps.check_version.outputs.VERSION_CHANGED == 'true'
@@ -132,5 +125,4 @@ jobs:
           gh release create "$TAG" \
             --title "$TAG" \
             --notes-file release_notes.txt \
-            app/build/outputs/renamed_apk/release/MyTVB-v${{ steps.get_version.outputs.VERSION_NAME }}-release.apk \
-            app/build/outputs/renamed_apk/debug/MyTVB-v${{ steps.get_version.outputs.VERSION_NAME }}-debug.apk
+            app/build/outputs/renamed_apk/release/MyTVB-v${{ steps.get_version.outputs.VERSION_NAME }}-release.apk

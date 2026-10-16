@@ -434,14 +434,17 @@ class OwnerDetailDialog(
             TabKind.VIDEO -> {
                 // 「最早发布」：投稿接口无正序参数，跳末页倒着翻（fetchTabPage 内换算页码）
                 if (videoOldestMode(state)) {
-                    if (state.totalCount <= 0) {
+                    // 首屏 = 总数尚未探得。不能用 page<=1 判首屏：倒翻推进到第 1 页时
+                    // 会被换成末页重拉，页码在末页与次页间震荡，列表反复 REPLACE 回顶
+                    val probing = state.totalCount <= 0
+                    if (probing) {
                         val probe = userRepository.getUserDynamic(
                             owner.mid, page = 1, pageSize = PAGE_SIZE
                         ).getOrThrow().data ?: error("empty data")
                         state.totalCount = probe.totalCount
                     }
                     val maxPage = ((state.totalCount + PAGE_SIZE - 1) / PAGE_SIZE).coerceAtLeast(1)
-                    val pn = page.coerceAtMost(maxPage).let { if (page <= 1) maxPage else it }
+                    val pn = if (probing) maxPage else page.coerceAtMost(maxPage)
                     AppLog.d(TAG, "fetch video oldest pn=$pn total=${state.totalCount}")
                     val data = userRepository.getUserDynamic(
                         owner.mid, page = pn, pageSize = PAGE_SIZE
@@ -526,8 +529,8 @@ class OwnerDetailDialog(
                 val videos = ContentFilter.filterVideos(binding.root.context, pageData.videos)
                     .let { if (videoOldestMode(state)) it.reversed() else it }
                 state.hasMore = pageData.hasMore
-                // 倒翻首次请求的页码是末页（非1）：按“列表是否为空”判定首批数据
-                val isFirstBatch = pageToLoad == 1 || state.items.isEmpty()
+                // 首批判定只看列表是否已空：倒翻末批页码是 1，若按页码判会走 REPLACE 重置滚动位置
+                val isFirstBatch = state.items.isEmpty()
                 if (isFirstBatch) {
                     state.loadedFirstPage = true
                     state.items = videos.toMutableList()

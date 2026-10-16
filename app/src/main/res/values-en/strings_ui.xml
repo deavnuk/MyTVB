@@ -133,13 +133,6 @@
     <string name="x5_install_unsupported">canLoadX5 is still false after install; the device may be unsupported</string>
     <string name="x5_install_error_format">Install error: %1$s</string>
 
-    <!-- ===== debug: debug log page ===== -->
-    <string name="debug_export">Export</string>
-    <string name="debug_export_success">Exported</string>
-    <string name="debug_export_success_message_format">Log saved to:\n%1$s\n\nOpen this path in a file manager, or pull it via adb.</string>
-    <string name="debug_export_failed_format">Export failed: %1$s</string>
-    <string name="debug_got_it">Got it</string>
-
     <!-- ===== layout placeholders / titles ===== -->
     <string name="cell_title_placeholder">Title title title title title title title title title</string>
     <string name="cell_fans_placeholder">0 followers</string>

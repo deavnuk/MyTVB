@@ -153,7 +153,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_CHECK_UPDATE = "action_check_update"
         private const val KEY_X5_CORE = "action_x5_core"
         private const val KEY_LOG_RECORD = "action_log_record"
-        private const val KEY_DEBUG_LOG = "action_debug_log"
+        private const val KEY_LAN_LOG = "action_lan_log"
         private const val KEY_DEVICE_MODEL = "info_device_model"
         private const val KEY_SYSTEM_VERSION = "info_system_version"
         private const val KEY_SDK_VERSION = "info_sdk_version"
@@ -381,7 +381,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             )),
             SettingGroup(R.string.setting_group_diagnostics, listOf(
                 plain(KEY_LOG_RECORD, R.string.log_record, getString(if (AppLog.isEnabled) R.string.on else R.string.off)),
-                plain(KEY_DEBUG_LOG, R.string.debug_log)
+                plain(KEY_LAN_LOG, R.string.lan_log)
             )),
             SettingGroup(R.string.device_info, listOf(
                 plain(KEY_DEVICE_MODEL, R.string.device_model, Build.MODEL),
@@ -684,9 +684,9 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 updateInfo(key, labelOf(newValue))
                 AppToast.show(requireContext(), getString(R.string.log_enabled_toast, labelOf(newValue)))
             }
-            KEY_DEBUG_LOG -> {
+            KEY_LAN_LOG -> {
                 val activity = activity as? MainActivity
-                activity?.openOverlayFragment(DebugLogFragment.newInstance(), "debug_log")
+                activity?.openOverlayFragment(LanLogFragment.newInstance(), "lan_log")
             }
             KEY_CODEC_INFO -> {
                 val activity = activity as? MainActivity

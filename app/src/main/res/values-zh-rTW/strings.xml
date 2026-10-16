@@ -360,7 +360,12 @@
     <string name="window_metrics_format">%1$dx%2$d · 渲染%3$.2f · 設計%4$.2f · 縮放%5$d%%</string>
     <string name="hardware_decode">硬解支援</string>
     <string name="log_record">日誌記錄</string>
-    <string name="debug_log">除錯日誌</string>
+    <string name="lan_log">區域網路日誌</string>
+    <string name="lan_log_hint">手機與電視連接同一網路後，掃碼或在手機瀏覽器輸入左側網址，即可查看即時日誌、當機記錄並下載快照\n離開本頁後連線自動關閉</string>
+    <string name="lan_log_no_network">未取得區域網路 IP，請檢查網路連線</string>
+    <string name="lan_log_server_failed">日誌伺服器啟動失敗</string>
+    <string name="lan_log_recording_on">日誌記錄：已開啟</string>
+    <string name="lan_log_recording_off">日誌記錄未開啟，即時日誌將為空（可在 設定→關於→診斷 中開啟）</string>
 
     <!-- ===== 多語言：設定頁狀態與提示 ===== -->
     <string name="toast_cache_cleared">快取已清除</string>

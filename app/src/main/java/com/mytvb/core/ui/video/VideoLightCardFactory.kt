@@ -706,12 +706,12 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         val iconTop = centerY - iconSize / 2f
         val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = badgeAccentColor }
         canvas.drawCircle(left + iconSize / 2f, centerY, iconSize / 2f, circlePaint)
-        // 白色对勾（圆内 0.5 倍尺寸居中）
+        // 白色对勾（含笔画宽度的外接框与圆同心：x±0.64s / y±0.50s，到圆周留白均匀）
         val check = Path().apply {
             val s = iconSize / 2f
-            moveTo(left + iconSize / 2f - s * 0.45f, centerY)
-            lineTo(left + iconSize / 2f - s * 0.1f, centerY + s * 0.35f)
-            lineTo(left + iconSize / 2f + s * 0.5f, centerY - s * 0.3f)
+            moveTo(left + iconSize / 2f - s * 0.48f, centerY + s * 0.02f)
+            lineTo(left + iconSize / 2f - s * 0.10f, centerY + s * 0.34f)
+            lineTo(left + iconSize / 2f + s * 0.48f, centerY - s * 0.34f)
         }
         canvas.drawPath(
             check,

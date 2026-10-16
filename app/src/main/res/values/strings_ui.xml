@@ -134,13 +134,6 @@
     <string name="x5_install_unsupported">安装后 canLoadX5 仍为 false，可能设备不支持</string>
     <string name="x5_install_error_format">安装异常: %1$s</string>
 
-    <!-- ===== debug：调试日志页 ===== -->
-    <string name="debug_export">导出</string>
-    <string name="debug_export_success">导出成功</string>
-    <string name="debug_export_success_message_format">日志已保存到：\n%1$s\n\n可用文件管理器进入该路径查看，或用 adb pull 取出。</string>
-    <string name="debug_export_failed_format">导出失败: %1$s</string>
-    <string name="debug_got_it">知道了</string>
-
     <!-- ===== layout 占位/标题 ===== -->
     <string name="cell_title_placeholder">标题标题标题标题标题标题标题标题标题</string>
     <string name="cell_fans_placeholder">0粉丝</string>

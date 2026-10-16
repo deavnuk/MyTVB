@@ -133,13 +133,6 @@
     <string name="x5_install_unsupported">安裝後 canLoadX5 仍為 false，可能裝置不支援</string>
     <string name="x5_install_error_format">安裝異常: %1$s</string>
 
-    <!-- ===== debug：除錯日誌頁 ===== -->
-    <string name="debug_export">匯出</string>
-    <string name="debug_export_success">匯出成功</string>
-    <string name="debug_export_success_message_format">日誌已儲存到：\n%1$s\n\n可用檔案管理器進入該路徑查看，或用 adb pull 取出。</string>
-    <string name="debug_export_failed_format">匯出失敗: %1$s</string>
-    <string name="debug_got_it">知道了</string>
-
     <!-- ===== layout 佔位/標題 ===== -->
     <string name="cell_title_placeholder">標題標題標題標題標題標題標題標題標題</string>
     <string name="cell_fans_placeholder">0粉絲</string>

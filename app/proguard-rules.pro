@@ -65,6 +65,8 @@
 -dontwarn javax.annotation.**
 -dontwarn kotlin.Unit
 -dontwarn retrofit2.**
+# gRPC 引用的 JNDI 类在 Android 上不存在（DNS 解析不走 JNDI）
+-dontwarn javax.naming.**
 
 # 移除日志（release 构建）
 -assumenosideeffects class android.util.Log {

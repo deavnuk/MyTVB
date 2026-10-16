@@ -359,7 +359,12 @@
     <string name="window_metrics_format">%1$dx%2$d · render %3$.2f · design %4$.2f · scale %5$d%%</string>
     <string name="hardware_decode">Hardware decoding</string>
     <string name="log_record">Logging</string>
-    <string name="debug_log">Debug log</string>
+    <string name="lan_log">LAN log</string>
+    <string name="lan_log_hint">With your phone and TV on the same network, scan the QR code or open the address on the left in a browser to view live logs, crash reports and download snapshots.\nThe connection closes when you leave this page.</string>
+    <string name="lan_log_no_network">No LAN IP found. Check the network connection.</string>
+    <string name="lan_log_server_failed">Failed to start log server</string>
+    <string name="lan_log_recording_on">Logging: on</string>
+    <string name="lan_log_recording_off">Logging is off, live log will be empty (enable it in Settings → About → Diagnostics)</string>
 
     <!-- ===== Settings status and toasts ===== -->
     <string name="toast_setting_value_format">%1$s: %2$s</string>

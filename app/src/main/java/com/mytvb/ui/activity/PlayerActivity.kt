@@ -2055,41 +2055,24 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun handlePlaybackEnded() {
-        val afterPlayMode = playerSettings.afterPlayMode
-        val hasNextEpisode = viewModel.hasNextEpisode()
-        val nextEpisode = viewModel.getNextEpisode()
-        when (
-            val plan = sessionCoordinator.buildContinuationPlan(
-                afterPlayMode = afterPlayMode,
-                exitPlayerWhenPlaybackFinished = playerSettings.exitPlayerWhenPlaybackFinished,
-                hasNextEpisode = hasNextEpisode,
-                nextEpisode = nextEpisode
-            )
-        ) {
-            is PlayerSessionCoordinator.ContinuationPlan.PlayIntent -> {
-                val intent = plan.intent
-                AppLog.i(TAG, "autoplay plan=${intent.kind} mode=$afterPlayMode cid=${intent.target.cid} id=${intent.id}")
-                val session = viewModel.prepareContinuation(intent) ?: return
-                autoPlayController.queueNextSession(intent.title, intent.coverUrl, session.id)
-            }
-            is PlayerSessionCoordinator.ContinuationPlan.ExitPlayer -> {
-                AppLog.i(TAG, "autoplay plan=exit mode=$afterPlayMode hasNext=$hasNextEpisode nextCid=${nextEpisode?.cid}")
-                if (afterPlayMode != AfterPlayMode.NOTHING && !psasLocked) {
-                    // 连播模式但取不到下一个（推荐空/队列空）：不再无声退出，展示播完推荐页兜底
-                    playbackEndPanelController.show()
-                } else {
-                    finish()
-                }
-            }
-            is PlayerSessionCoordinator.ContinuationPlan.ShowController -> {
-                AppLog.i(TAG, "autoplay plan=show_controller mode=$afterPlayMode hasNext=$hasNextEpisode nextCid=${nextEpisode?.cid}")
-                if (afterPlayMode != AfterPlayMode.NOTHING && !psasLocked) {
-                    playbackEndPanelController.show()
-                } else {
-                    playerView.showController()
-                }
-            }
-        }
+        val plan = sessionCoordinator.buildContinuationPlan(
+            afterPlayMode = playerSettings.afterPlayMode,
+            exitPlayerWhenPlaybackFinished = playerSettings.exitPlayerWhenPlaybackFinished,
+            hasNextEpisode = viewModel.hasNextEpisode(),
+            nextEpisode = viewModel.getNextEpisode()
+        )
+        com.mytvb.feature.player.PlaybackCompletionDispatcher.dispatch(
+            plan = plan,
+            mode = playerSettings.afterPlayMode,
+            locked = psasLocked,
+            play = { intent ->
+                val session = viewModel.prepareContinuation(intent)
+                if (session != null) autoPlayController.queueNextSession(intent.title, intent.coverUrl, session.id)
+            },
+            showRecommendations = { playbackEndPanelController.show() },
+            exit = { finish() },
+            showController = { playerView.showController() }
+        )
     }
 
     private fun hideNextPreview() { autoPlayController.hideNextPreview() }

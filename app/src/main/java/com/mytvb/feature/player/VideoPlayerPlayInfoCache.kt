@@ -76,7 +76,11 @@ internal object VideoPlayerPlayInfoCache {
     }
 
     @Synchronized
-    fun put(bvid: String, cid: Long, playInfo: PlayInfoModel) {
+    fun put(
+        bvid: String, cid: Long, playInfo: PlayInfoModel,
+        requestSession: com.mytvb.network.session.RequestSessionSnapshot = com.mytvb.network.session.RequestSessionScope.capture()
+    ) {
+        if (!com.mytvb.network.session.RequestSessionScope.isCurrent(requestSession)) return
         if (bvid.isBlank() || cid <= 0L) return
         cache[buildKey(bvid, cid)] = Entry(
             playInfo = playInfo,
@@ -130,6 +134,6 @@ internal object VideoPlayerPlayInfoCache {
         cache.remove(buildKey(bvid, cid))
     }
 
-    private fun buildKey(bvid: String, cid: Long): String = "${bvid.trim()}|$cid"
+    private fun buildKey(bvid: String, cid: Long): String = "${com.mytvb.network.session.RequestSessionScope.capture().generation}|${bvid.trim()}|$cid"
 }
 

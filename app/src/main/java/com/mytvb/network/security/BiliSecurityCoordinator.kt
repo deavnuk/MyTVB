@@ -2,6 +2,8 @@
 
 package com.mytvb.network.security
 
+import com.mytvb.core.common.coroutine.catchingRequest
+
 import android.util.Base64
 import com.mytvb.model.BaseResponse
 import com.mytvb.model.user.UserDetailInfoModel
@@ -132,8 +134,8 @@ class BiliSecurityCoordinator(
     }
 
     suspend fun activateAfterLogin() {
-        runCatching { ensureWebFingerprintCookies() }
-        runCatching { ensureBuvidActiveOncePerDay() }
+        catchingRequest { ensureWebFingerprintCookies() }
+        catchingRequest { ensureBuvidActiveOncePerDay() }
     }
 
     suspend fun prewarmWebSession(forceUaRefresh: Boolean = false): Boolean {
@@ -158,7 +160,7 @@ class BiliSecurityCoordinator(
             }
             val (mainPageLoaded, navSuccess) = coroutineScope {
                 val mainPageDeferred = async {
-                    runCatching {
+                    catchingRequest {
                         apiService.getMainPage().use { body ->
                             body.source().request(1)
                         }
@@ -167,8 +169,10 @@ class BiliSecurityCoordinator(
                     }.isSuccess
                 }
                 val navDeferred = async {
-                    runCatching {
+                    catchingRequest {
+                        val requestSession = com.mytvb.network.session.RequestSessionScope.capture()
                         val navResponse = apiService.getUserDetailInfo()
+                        com.mytvb.network.session.RequestSessionScope.requireCurrent(requestSession)
                         if (navResponse.isSuccess && navResponse.data != null) {
                             val imgKey = navResponse.data.wbiImg?.imgUrl?.let(WbiGenerator::extractKeyFromUrl).orEmpty()
                             val subKey = navResponse.data.wbiImg?.subUrl?.let(WbiGenerator::extractKeyFromUrl).orEmpty()
@@ -180,7 +184,7 @@ class BiliSecurityCoordinator(
                         } else {
                             if (navResponse.code == -101 && cookieManager.hasSessionCookie()) {
                                 AppLog.w(tag, "prewarmWebSession: session expired (code=-101), triggering cookie refresh")
-                                runCatching { doCookieRefresh() }
+                                catchingRequest { doCookieRefresh() }
                             }
                             AppLog.w(tag, "prewarmWebSession nav failed: code=${navResponse.code} msg=${navResponse.message}")
                             false
@@ -269,7 +273,7 @@ class BiliSecurityCoordinator(
     }
 
     private suspend fun ensureWbiKeysFromNav() {
-        runCatching {
+        catchingRequest {
             val navResponse = apiService.getUserDetailInfo()
             if (navResponse.data != null) {
                 val imgKey = navResponse.data.wbiImg?.imgUrl?.let(WbiGenerator::extractKeyFromUrl).orEmpty()
@@ -295,7 +299,8 @@ class BiliSecurityCoordinator(
     suspend fun forceCookieRefresh() {
         lastCookieInfoCheckMs = 0L
         lastEnsureHealthyForPlayMs = 0L
-        ensureHealthyForPlay()
+        // Recovery must await the refresh, not race the fire-and-forget startup job.
+        refreshCookieIfServerSaysNeeded(force = true)
     }
 
     suspend fun ensureWebFingerprintCookies() {
@@ -305,7 +310,7 @@ class BiliSecurityCoordinator(
             val hasBuvid4 = !cookieManager.getCookieValue("buvid4").isNullOrBlank()
 
             if (!hasBuvid3 || !hasBNut) {
-                runCatching {
+                catchingRequest {
                     apiService.getMainPage().use { body ->
                         body.source().request(1)
                     }
@@ -315,7 +320,7 @@ class BiliSecurityCoordinator(
             }
 
             if (!hasBuvid4) {
-                runCatching {
+                catchingRequest {
                     val request = okhttp3.Request.Builder()
                         .url("https://api.bilibili.com/x/frontend/finger/spi")
                         .build()
@@ -350,7 +355,7 @@ class BiliSecurityCoordinator(
             if (biliTicketCheckedDay == epochDay) return@withContext
             biliTicketCheckedDay = epochDay
 
-            runCatching {
+            catchingRequest {
                 val ts = (nowMs / 1000).toString()
                 val csrf = cookieManager.getCsrfToken()
                 val hexsign = hmacSha256Hex(key = BILI_TICKET_HMAC_KEY, message = "ts$ts")
@@ -363,11 +368,11 @@ class BiliSecurityCoordinator(
                 val response = okHttpClient.newCall(request).execute()
                 val body = response.body?.string().orEmpty()
                 val json = JSONObject(body)
-                val data = json.optJSONObject("data") ?: return@runCatching
+                val data = json.optJSONObject("data") ?: return@catchingRequest
                 val ticket = data.optString("ticket", "").trim()
                 val createdAt = data.optLong("created_at", 0L)
                 val ttl = data.optLong("ttl", 0L)
-                if (ticket.isBlank() || createdAt <= 0L || ttl <= 0L) return@runCatching
+                if (ticket.isBlank() || createdAt <= 0L || ttl <= 0L) return@catchingRequest
                 val expiresSec = createdAt + ttl
                 val expiresAt = expiresSec * 1000L
                 cookieManager.saveCookies(
@@ -407,7 +412,7 @@ class BiliSecurityCoordinator(
                 if (attempt > 0) {
                     delay(EXCLIMB_RETRY_DELAY_MS)
                 }
-                runCatching {
+                catchingRequest {
                     WbiGenerator.ensureBRet()
                     val rand = ByteArray(32 + 8 + 4)
                     SecureRandom().nextBytes(rand)
@@ -466,25 +471,22 @@ class BiliSecurityCoordinator(
         }
     }
 
-    private suspend fun refreshCookieIfServerSaysNeeded() {
+    private suspend fun refreshCookieIfServerSaysNeeded(force: Boolean = false) {
         if (!cookieManager.hasSessionCookie()) return
         val now = System.currentTimeMillis()
-        if (now - lastCookieInfoCheckMs < COOKIE_INFO_CHECK_INTERVAL_MS) return
+        if (!force && now - lastCookieInfoCheckMs < COOKIE_INFO_CHECK_INTERVAL_MS) return
 
-        if (!cookieRefreshMutex.tryLock()) {
-            AppLog.d(tag, "refreshCookie: another refresh is in progress, skipping")
-            return
-        }
+        cookieRefreshMutex.lock()
 
         try {
-            if (now - lastCookieInfoCheckMs < COOKIE_INFO_CHECK_INTERVAL_MS) return
+            if (!force && now - lastCookieInfoCheckMs < COOKIE_INFO_CHECK_INTERVAL_MS) return
 
-            runCatching {
+            val refreshResult = catchingRequest {
                 val csrf = cookieManager.getCsrfToken()
                 if (csrf.isBlank()) {
                     AppLog.w(tag, "refreshCookie: no bili_jct found, skipping cookie info check")
                     lastCookieInfoCheckMs = now
-                    return@runCatching
+                    return@catchingRequest
                 }
 
                 val infoUrl = "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=$csrf"
@@ -502,7 +504,7 @@ class BiliSecurityCoordinator(
                 if (infoJson.optInt("code", -1) != 0) {
                     AppLog.w(tag, "refreshCookie: cookie/info check failed: code=${infoJson.optInt("code")} msg=${infoJson.optString("message")}")
                     lastCookieInfoCheckMs = now
-                    return@runCatching
+                    return@catchingRequest
                 }
 
                 val needRefresh = infoJson.optJSONObject("data")?.optBoolean("refresh", false) ?: false
@@ -510,11 +512,15 @@ class BiliSecurityCoordinator(
                 if (needRefresh) {
                     AppLog.i(tag, "refreshCookie: server says refresh needed, starting cookie refresh")
                     doCookieRefresh()
-                    return@runCatching
+                    return@catchingRequest
                 }
 
+                val requestSession = com.mytvb.network.session.RequestSessionScope.capture()
                 val navResponse = apiService.getUserDetailInfo()
-                if (navResponse.code == -101) {
+                com.mytvb.network.session.RequestSessionScope.requireCurrent(requestSession)
+                if (navResponse.code == -101 ||
+                    (navResponse.isSuccess && navResponse.data?.isLogin == false)
+                ) {
                     AppLog.w(tag, "refreshCookie: cookie/info says OK but nav returns -101, forcing cookie refresh")
                     doCookieRefresh()
                 } else if (navResponse.isSuccess && navResponse.data != null) {
@@ -524,6 +530,7 @@ class BiliSecurityCoordinator(
             }.onFailure {
                 AppLog.w(tag, "refreshCookie info check failed: ${it.message}")
             }
+            if (force) refreshResult.getOrThrow()
         } finally {
             cookieRefreshMutex.unlock()
         }
@@ -592,7 +599,7 @@ class BiliSecurityCoordinator(
             refreshTokenSaver(newRefreshToken)
         }
 
-        runCatching {
+        catchingRequest {
             val newCsrf = cookieManager.getCsrfToken()
             val confirmForm = FormBody.Builder()
                 .add("csrf", newCsrf)

@@ -65,7 +65,9 @@ class UserRepository(
     )
 
     suspend fun getUserDetailInfo(): BaseResponse<UserDetailInfoModel> {
+        val requestSession = com.mytvb.network.session.RequestSessionScope.capture()
         return apiService.getUserDetailInfo().also { response ->
+            com.mytvb.network.session.RequestSessionScope.requireCurrent(requestSession)
             sessionGateway.syncUserSession(response, source = "getUserDetailInfo")
         }
     }
@@ -307,8 +309,10 @@ class UserRepository(
         }
 
     suspend fun refreshCurrentUserInfo(): Result<UserDetailInfoModel> =
-        runCatching {
+        com.mytvb.core.common.coroutine.catchingRequest {
+            val requestSession = com.mytvb.network.session.RequestSessionScope.capture()
             val response = apiService.getUserDetailInfo()
+            com.mytvb.network.session.RequestSessionScope.requireCurrent(requestSession)
             val info = sessionGateway.syncUserSession(
                 response,
                 source = "refreshCurrentUserInfo"

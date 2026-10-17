@@ -118,6 +118,7 @@ class CookieManager : CookieJar {
     }
 
     fun clearCookies() {
+        com.mytvb.network.session.RequestSessionScope.invalidate()
         cookieCache.clear()
         appSettings.putStringSetBlocking(KEY_COOKIES, emptySet())
         clearProtectedCookieBackup()
@@ -291,6 +292,9 @@ class CookieManager : CookieJar {
             }
             return
         }
+        if (cookie.name == "SESSDATA" &&
+            (existingIndex < 0 || cookies[existingIndex].value != cookie.value)
+        ) com.mytvb.network.session.RequestSessionScope.invalidate()
         if (existingIndex >= 0) {
             cookies[existingIndex] = cookie
         } else {

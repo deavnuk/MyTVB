@@ -2,6 +2,7 @@
 
 package com.mytvb.feature.player
 
+import com.mytvb.core.common.coroutine.catchingRequest
 import com.mytvb.core.common.json.GsonHolder
 import android.content.Context
 import android.os.SystemClock
@@ -169,7 +170,7 @@ class VideoPlayerViewModel(
             trimExpiredCachedPlaybacks()
             // 诊断：写入缓存时记录 uri，定位是否"写入即串台"（原因B）
             // 与读出时的 zero_overhead_reuse_hit.cacheUri 对照
-            val putUri = runCatching {
+            val putUri = catchingRequest {
                 mediaSource.mediaItem.localConfiguration?.uri?.toString()
             }.getOrNull()?.substringAfterLast('/')
             AppLog.w(
@@ -196,7 +197,7 @@ class VideoPlayerViewModel(
         }
 
         private fun cachePlaybackKey(bvid: String?, cid: Long): String {
-            return "${bvid.orEmpty()}#$cid"
+            return "${com.mytvb.network.session.RequestSessionScope.capture().generation}#${bvid.orEmpty()}#$cid"
         }
 
         private fun trimExpiredCachedPlaybacks() {
@@ -284,6 +285,7 @@ class VideoPlayerViewModel(
 
     internal data class PreparedPlayback(
         val identity: PlayRequestIdentity,
+        val requestSession: com.mytvb.network.session.RequestSessionSnapshot,
         val playInfo: PlayInfoModel,
         val selectionSnapshot: VideoPlayerStreamResolver.SelectionSnapshot,
         val mediaSource: MediaSource,
@@ -329,7 +331,7 @@ class VideoPlayerViewModel(
     private val gson = GsonHolder.DEFAULT
     private val appContext = context.applicationContext
     private val ipv4OnlyEnabled: () -> Boolean = {
-        runCatching { KoinPlatform.getKoin().get<AppSettingsDataStore>() }
+        catchingRequest { KoinPlatform.getKoin().get<AppSettingsDataStore>() }
             .getOrNull()
             ?.getCachedString("ipv4_only") != "关"
     }
@@ -768,6 +770,7 @@ class VideoPlayerViewModel(
     private var pendingPlayWhenReady: Boolean = true
     private var didApplyLastPlayPosition = false
     private var launchStartEpisodeIndex: Int = -1
+    private var activeRequestSession = com.mytvb.network.session.RequestSessionScope.capture()
     private var videoLoadGeneration: Long = 0L
     private var douyinWarmupJob: Job? = null
 
@@ -900,7 +903,7 @@ class VideoPlayerViewModel(
     }
 
     private suspend fun fetchOnlineWatching(bvid: String, cid: Long) {
-        runCatching { apiService.getOnlineTotal(bvid = bvid, cid = cid) }
+        catchingRequest { apiService.getOnlineTotal(bvid = bvid, cid = cid) }
             .onSuccess { response ->
                 val text = if (response.isSuccess) response.data?.displayText() else null
                 _onlineWatching.value = text
@@ -995,11 +998,12 @@ class VideoPlayerViewModel(
         pendingSeekPositionMs = seekPositionMs.coerceAtLeast(0L)
         pendingPlayWhenReady = true
         launchStartEpisodeIndex = startEpisodeIndex
+        activeRequestSession = com.mytvb.network.session.RequestSessionScope.capture()
         val loadGeneration = ++videoLoadGeneration
         // 先清理上一条播放的预加载，再启动当前视频弹幕预热；否则后续初始化会把刚启动的弹幕预热取消掉。
         clearPreloadedPlaybackIfDifferent(currentPlayRequestIdentity(), cancelJob = true)
         viewModelScope.launch {
-            runCatching { playInfoGateway.warmupWbiKeys() }
+            catchingRequest { playInfoGateway.warmupWbiKeys() }
         }
 
         // 入口只预取弹幕 view 元数据；分片解析放到首帧后，避免与解码起播抢 CPU。
@@ -1073,6 +1077,7 @@ class VideoPlayerViewModel(
                     loadGeneration = loadGeneration
                 )
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.e(TAG, "loadVideoInfo exception: ${e.message}", e)
                 _error.value = e.message ?: appContext.getString(R.string.player_error_init_failed)
             } finally {
@@ -1571,7 +1576,7 @@ class VideoPlayerViewModel(
             message = "id=${continuationIntentId.orEmpty()} source=${target.source} cid=${identity.cid} epId=${identity.epId ?: 0L}"
         )
         preloadJob = viewModelScope.launch {
-            val preparedPlayback = runCatching {
+            val preparedPlayback = catchingRequest {
                 requestPreparedPlayback(
                     identity = identity,
                     preferLastPlayTime = false,
@@ -1719,7 +1724,7 @@ class VideoPlayerViewModel(
                             initialCodec = route.codec
                         )
                         val seamlessSource = seamlessCatalog?.let { catalog ->
-                            runCatching { seamlessDashMediaSourceFactory.createMediaSource(catalog) }
+                            catchingRequest { seamlessDashMediaSourceFactory.createMediaSource(catalog) }
                                 .onFailure { e ->
                                     AppLog.w(TAG, "seamless rebuild failed, fallback progressive: ${e.message}", e)
                                 }
@@ -1749,7 +1754,8 @@ class VideoPlayerViewModel(
                         currentRoute = route,
                         expiresAtMs = sessionExpiryMs
                     )
-                } catch (_: Exception) {
+                } catch (cancelledOrError: Exception) {
+                    if (cancelledOrError is kotlinx.coroutines.CancellationException) throw cancelledOrError
                     dashMediaSource = null
                 }
             }
@@ -1836,6 +1842,7 @@ class VideoPlayerViewModel(
                 }
                 applyPreparedPlayback(resolvedPlayback)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.e(TAG, "loadPlayUrl exception: ${e.message}", e)
                 _error.value = e.message ?: appContext.getString(R.string.player_error_play_url_load_failed)
             } finally {
@@ -1873,7 +1880,7 @@ class VideoPlayerViewModel(
         securityGateway.prewarmWebSession()
         val sectionsDeferred = async {
             seasonId?.takeIf { it > 0L }?.let {
-                runCatching { apiService.getVideoEpisodeSections(it) }.getOrNull()
+                catchingRequest { apiService.getVideoEpisodeSections(it) }.getOrNull()
             }
         }
         val detailResponse = apiService.getVideoEpisodes(seasonId, epId)
@@ -1984,6 +1991,11 @@ class VideoPlayerViewModel(
         }
     }
 
+    private suspend fun loadVideoDetail(aid: Long?, bvid: String?) =
+        com.mytvb.repository.cache.VideoMetadataCache.detail(aid, bvid) {
+            apiService.getVideoDetail(aid, bvid)
+        }
+
     private suspend fun loadUgcVideoInfo(preferLastPlayTime: Boolean, loadGeneration: Long) = coroutineScope {
         val initialIdentity = currentPlayRequestIdentity()
 
@@ -2017,7 +2029,7 @@ class VideoPlayerViewModel(
             )
             if (cachedPlayback != null && playerHasSameSource) {
                 // 诊断：对照"请求身份"与"VM 缓存命中内容"，防止跨视频串台。
-                val cachedUri = runCatching {
+                val cachedUri = catchingRequest {
                     cachedPlayback.mediaSource.mediaItem.localConfiguration?.uri?.toString()
                 }.getOrNull()
                 AppLog.w(
@@ -2073,7 +2085,7 @@ class VideoPlayerViewModel(
                 val detailAid = currentAid
                 val detailBvid = currentBvid
                 viewModelScope.launch {
-                    val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
+                    val detailResponse = loadVideoDetail(detailAid, detailBvid)
                     if (!isActiveVideoLoad(loadGeneration) || currentCid != initialIdentity.cid) {
                         return@launch
                     }
@@ -2158,7 +2170,7 @@ class VideoPlayerViewModel(
                 val detailAid = currentAid
                 val detailBvid = currentBvid
                 viewModelScope.launch {
-                    val detailResponse = apiService.getVideoDetail(detailAid, detailBvid)
+                    val detailResponse = loadVideoDetail(detailAid, detailBvid)
                     if (!isActiveVideoLoad(loadGeneration) || currentCid != initialIdentity.cid) {
                         return@launch
                     }
@@ -2214,7 +2226,7 @@ class VideoPlayerViewModel(
                     )
                 }
             }
-        var detailResponse = apiService.getVideoDetail(currentAid, currentBvid)
+        var detailResponse = loadVideoDetail(currentAid, currentBvid)
         // bvid 为空且 /view/detail 失败时，用 /view?aid= 解析出真实 bvid 再重走全量 detail
         // （app 推荐流的超大 aid detail 接口不认；view?aid= 的平铺响应只用来取 bvid）
         if (!detailResponse.isSuccess && currentBvid.isNullOrBlank() && (currentAid ?: 0L) > 0L) {
@@ -2223,7 +2235,7 @@ class VideoPlayerViewModel(
                 .data?.bvid?.takeIf { it.isNotBlank() }
             if (resolvedBvid != null) {
                 currentBvid = resolvedBvid
-                detailResponse = apiService.getVideoDetail(currentAid, resolvedBvid)
+                detailResponse = loadVideoDetail(currentAid, resolvedBvid)
             }
         }
         if (!detailResponse.isSuccess || detailResponse.data == null) {
@@ -2387,7 +2399,7 @@ class VideoPlayerViewModel(
             _relatedVideos.value = related
         } else {
             viewModelScope.launch {
-                val latestRelated = runCatching {
+                val latestRelated = catchingRequest {
                     apiService.getRelated(currentAid, currentBvid).data.orEmpty()
                 }.onFailure {
                     AppLog.w(TAG, "related_fallback failed aid=$currentAid bvid=$currentBvid err=${it.message}")
@@ -2580,6 +2592,7 @@ class VideoPlayerViewModel(
         continuationIntentId: String? = pendingContinuationIntentId,
         suppressUiSignals: Boolean = false
     ): PreparedPlayback? {
+        val requestSession = com.mytvb.network.session.RequestSessionScope.capture()
         val requestStartMs = System.currentTimeMillis()
         val hardwareCodecs = hardwareSupportedVideoCodecs
         val preferredQualityId = qualityCandidates.firstOrNull()
@@ -2632,7 +2645,7 @@ class VideoPlayerViewModel(
 
         identity.bvid
             ?.takeIf { it.isNotBlank() && identity.epId == null }
-            ?.let { bvid -> VideoPlayerPlayInfoCache.put(bvid = bvid, cid = identity.cid, playInfo = initialPlayInfo) }
+            ?.let { bvid -> VideoPlayerPlayInfoCache.put(bvid = bvid, cid = identity.cid, playInfo = initialPlayInfo, requestSession = requestSession) }
 
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
@@ -2714,7 +2727,7 @@ class VideoPlayerViewModel(
                                 initialCodec = firstRoute.codec
                             )
                             if (seamlessCatalog != null) {
-                                val seamlessSource = runCatching {
+                                val seamlessSource = catchingRequest {
                                     seamlessDashMediaSourceFactory.createMediaSource(seamlessCatalog)
                                 }.onFailure { e ->
                                     AppLog.w(TAG, "seamless source build failed, fallback progressive: ${e.message}", e)
@@ -2750,6 +2763,7 @@ class VideoPlayerViewModel(
                             expiresAtMs = sessionExpiryMs
                         )
                     } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         AppLog.e(TAG, "dashMediaSource:failed cid=${identity.cid} error=${e.message}", e)
                         dashMediaSource = null
                         preparedDashSession = null
@@ -2802,8 +2816,10 @@ class VideoPlayerViewModel(
             val startPosition = rawResumePosition.takeIf { shouldResume } ?: 0L
 
             val resumeHintPositionMs = startPosition.takeIf { shouldResume && !replaceInPlace }
+            com.mytvb.network.session.RequestSessionScope.requireCurrent(requestSession)
             PreparedPlayback(
                 identity = identity,
+                requestSession = requestSession,
                 playInfo = initialPlayInfo,
                 selectionSnapshot = selectionSnapshot,
                 mediaSource = mediaSource,
@@ -2828,6 +2844,7 @@ class VideoPlayerViewModel(
         resetFallbackAttempts: Boolean = true,
         countCurrentAttemptAsFallback: Boolean = false
     ) {
+        com.mytvb.network.session.RequestSessionScope.requireCurrent(preparedPlayback.requestSession)
         clearPreloadedPlayback(cancelJob = false)
         currentPlayInfo = preparedPlayback.playInfo
         currentDashSession = preparedPlayback.dashSession
@@ -3243,7 +3260,8 @@ class VideoPlayerViewModel(
     }
 
     private fun isActiveVideoLoad(loadGeneration: Long): Boolean {
-        return loadGeneration == videoLoadGeneration
+        return loadGeneration == videoLoadGeneration &&
+            com.mytvb.network.session.RequestSessionScope.isCurrent(activeRequestSession)
     }
 
     private fun shouldFallbackToUgcPlayback(response: Base2Response<*>): Boolean {

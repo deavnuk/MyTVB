@@ -100,6 +100,7 @@ class PlaybackProgressStoreTest {
 
         override fun getAll(): Map<String, *> = store
         override fun getString(key: String, defValue: String?): String? = store[key] as? String ?: defValue
+        @Suppress("UNCHECKED_CAST") // 测试内存版 SharedPreferences，元素类型由写入方保证
         override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? = store[key] as? Set<String> ?: defValues
         override fun getBoolean(key: String, defValue: Boolean): Boolean = store[key] as? Boolean ?: defValue
         override fun getInt(key: String, defValue: Int): Int = store[key] as? Int ?: defValue

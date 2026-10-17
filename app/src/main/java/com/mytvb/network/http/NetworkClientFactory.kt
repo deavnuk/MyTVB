@@ -38,6 +38,9 @@ object NetworkClientFactory {
         val builder = OkHttpClient.Builder()
             .cookieJar(cookieManager)
             .dns(ipv4OnlyDns(ipv4OnlyEnabled))
+            .addInterceptor(com.mytvb.network.interceptor.NetworkDiagnosticsInterceptor())
+            .addInterceptor(com.mytvb.network.interceptor.SessionScopeInterceptor())
+            .addNetworkInterceptor(com.mytvb.network.interceptor.SessionScopeResponseInterceptor())
             .addInterceptor(
                 HeaderInterceptor(
                     userAgentProvider = userAgentProvider,

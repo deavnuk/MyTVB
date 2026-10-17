@@ -1,5 +1,6 @@
 package com.mytvb.feature.player
 
+import com.mytvb.core.common.coroutine.catchingRequest
 import com.mytvb.core.common.format.MediaFormatUtils
 import com.mytvb.model.player.PgcV2Result
 import com.mytvb.model.player.PlayInfoModel
@@ -196,7 +197,7 @@ class VideoPlayerPlayInfoGateway(
         return coroutineScope {
             val wbiDeferred = async<PlayInfoResult?> {
                 val startedAtMs = SystemClock.elapsedRealtime()
-                val result = runCatching {
+                val result = catchingRequest {
                     requestWbiPlayInfo(aid, bvid, cid, qualityId, fnval, fourk)
                 }.getOrNull()
                 AppLog.i(
@@ -208,7 +209,7 @@ class VideoPlayerPlayInfoGateway(
             }
             val normalDeferred = async<PlayInfoResult?> {
                 val startedAtMs = SystemClock.elapsedRealtime()
-                val result = runCatching {
+                val result = catchingRequest {
                     requestNormalPlayInfo(aid, bvid, cid, qualityId, fnval, fourk)
                 }.getOrNull()
                 AppLog.i(
@@ -308,7 +309,7 @@ class VideoPlayerPlayInfoGateway(
             params["session"] = session
         }
 
-        val wbiResponse = runCatching {
+        val wbiResponse = catchingRequest {
             apiService.getVideoPlayInfoWbi(buildWbiParams(params))
         }.onFailure { throwable ->
             if (throwable !is CancellationException) {
@@ -336,7 +337,7 @@ class VideoPlayerPlayInfoGateway(
     ): PlayInfoResult? {
         val gaiaVtoken = cookieManager.getCookieValue("x-bili-gaia-vtoken")?.trim()
         val tryLook = if (!cookieManager.hasSessionCookie()) 1 else null
-        val normalResponse = runCatching {
+        val normalResponse = catchingRequest {
             apiService.getVideoPlayInfo(
                 avid = aid,
                 bvid = bvid,
@@ -424,8 +425,8 @@ class VideoPlayerPlayInfoGateway(
             params["session"] = session
         }
 
-        val wbiResponse = runCatching {
-            noCookieApiService.getVideoPlayInfoWbiTryLook(buildWbiParams(params))
+        val wbiResponse = catchingRequest {
+            NetworkManager.getGuestPlaybackApi().getVideoPlayInfoWbiTryLook(buildWbiParams(params))
         }.onFailure { throwable ->
             AppLog.e(logTag, "requestPlayInfo wbi try_look exception: ${throwable.message}", throwable)
         }.getOrNull()
@@ -448,8 +449,8 @@ class VideoPlayerPlayInfoGateway(
         fnval: Int,
         fourk: Int
     ): PlayInfoResult? {
-        val response = runCatching {
-            noCookieApiService.getVideoPlayInfoTryLook(
+        val response = catchingRequest {
+            NetworkManager.getGuestPlaybackApi().getVideoPlayInfoTryLook(
                 avid = aid,
                 bvid = bvid,
                 cid = cid,
@@ -483,7 +484,7 @@ class VideoPlayerPlayInfoGateway(
             val params = mutableMapOf("cid" to cid.toString())
             aid?.let { params["avid"] = it.toString() }
             bvid?.takeIf { it.isNotBlank() }?.let { params["bvid"] = it }
-            val wbiResponse = runCatching {
+            val wbiResponse = catchingRequest {
                 apiService.getPlayerInfoWbi(buildWbiParams(params))
             }.onFailure { throwable ->
                 AppLog.e(logTag, "loadPlayerInfoData wbi exception: ${throwable.message}", throwable)
@@ -491,7 +492,7 @@ class VideoPlayerPlayInfoGateway(
             wbiResponse?.data?.takeIf { wbiResponse.isSuccess }?.let { return it }
         }
 
-        val normalResponse = runCatching {
+        val normalResponse = catchingRequest {
             apiService.getPlayerInfo(
                 aid = aid,
                 bvid = bvid,
@@ -517,7 +518,7 @@ class VideoPlayerPlayInfoGateway(
             return null
         }
 
-        val response = runCatching {
+        val response = catchingRequest {
             apiService.getVideoSnapshot(
                 aid = aid,
                 bvid = bvid,
@@ -576,7 +577,7 @@ class VideoPlayerPlayInfoGateway(
             }
         }
         val expectation = buildDanmakuSegmentExpectation(expectedSegmentCount)
-        val normalBytes = runCatching {
+        val normalBytes = catchingRequest {
             apiService.getVideoComment(
                 oid = cid,
                 pid = aid,
@@ -674,7 +675,7 @@ class VideoPlayerPlayInfoGateway(
             rangeStartMs?.let { params["ps"] = it.coerceAtLeast(0L).toString() }
             rangeEndMs?.let { params["pe"] = it.coerceAtLeast(0L).toString() }
         }
-        return runCatching {
+        return catchingRequest {
             apiService.getVideoCommentWbi(buildWbiParams(params)).use { responseBody ->
                 responseBody.bytes()
             }
@@ -685,7 +686,7 @@ class VideoPlayerPlayInfoGateway(
         if (bytes == null) {
             return null
         }
-        val segment = runCatching { DmProtoParser.parseSegment(bytes) }.getOrNull()
+        val segment = catchingRequest { DmProtoParser.parseSegment(bytes) }.getOrNull()
         return DanmakuSegmentProbe(
             bytes = bytes,
             elemCount = segment?.elems?.size ?: -1,
@@ -724,7 +725,7 @@ class VideoPlayerPlayInfoGateway(
         cid: Long,
         aid: Long
     ): ByteArray? {
-        return runCatching {
+        return catchingRequest {
             apiService.getVideoCommentView(
                 oid = cid,
                 pid = aid
@@ -740,7 +741,7 @@ class VideoPlayerPlayInfoGateway(
             url.startsWith("//") -> "https:$url"
             else -> url
         }
-        return@withContext runCatching {
+        return@withContext catchingRequest {
             val request = Request.Builder()
                 .url(normalizedUrl)
                 .build()
@@ -843,7 +844,7 @@ class VideoPlayerPlayInfoGateway(
                 )
             }
             val attemptStartedAtMs = SystemClock.elapsedRealtime()
-            val response = runCatching {
+            val response = catchingRequest {
                 apiService.getVideoPlayPgcInfo(params)
             }.onFailure { throwable ->
                 AppLog.e(
@@ -940,14 +941,17 @@ class VideoPlayerPlayInfoGateway(
             return false
         }
         // 使用无 cookie 的客户端，防止 -101 响应清除关键 cookie
-        val response = runCatching {
+        val response = catchingRequest {
             noCookieApiService.getUserDetailInfo()
         }.onFailure { throwable ->
             AppLog.e(logTag, "ensureWbiKeys exception: ${throwable.message}", throwable)
         }.getOrNull() ?: return false
         if (response.isSuccess && response.data != null) {
-            // 只更新 userInfo 和 WBI keys，不触发 session 清除
-            sessionGateway.syncUserSession(response, source = "ensureWbiKeys", context = AuthContext.BACKGROUND)
+            // Anonymous nav is only a signing-key source, never a user-session source.
+            val imageKey = response.data.wbiImg?.imgUrl?.let(WbiGenerator::extractKeyFromUrl).orEmpty()
+            val subKey = response.data.wbiImg?.subUrl?.let(WbiGenerator::extractKeyFromUrl).orEmpty()
+            if (imageKey.isBlank() || subKey.isBlank()) return false
+            NetworkManager.setWbiInfo(imageKey, subKey)
             return true
         } else if (response.code != -101) {
             AppLog.e(logTag, "ensureWbiKeys failed: code=${response.code}, message=${response.errorMessage}")

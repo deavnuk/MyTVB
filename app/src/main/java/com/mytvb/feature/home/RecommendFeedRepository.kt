@@ -9,7 +9,10 @@ import com.mytvb.model.video.VideoModel
 import com.mytvb.network.api.BiliApi
 import com.mytvb.network.NetworkManager
 import com.mytvb.repository.cache.HomeCacheStore
-import kotlinx.coroutines.CompletableDeferred
+import com.mytvb.core.common.cache.OnDemandRequestCache
+import com.mytvb.core.common.coroutine.catchingRequest
+import com.mytvb.network.session.RequestSessionScope
+import com.mytvb.network.session.RequestSessionSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -26,16 +29,15 @@ class RecommendFeedRepository(
         private const val PRELOAD_PAGE_SIZE = 24
     }
 
-    private val firstPageLock = Any()
+    private data class FirstPageKey(val session: RequestSessionSnapshot, val pageSize: Int)
+    private val firstPages = OnDemandRequestCache<FirstPageKey, NetworkPage>(2, 0)
     @Volatile
-    private var firstPageInFlight: CompletableDeferred<NetworkPage>? = null
-    @Volatile
-    private var preloadedFirstPage: NetworkPage? = null
+    private var preloadedFirstPage: Pair<RequestSessionSnapshot, NetworkPage>? = null
 
     suspend fun preloadFirstPage() {
         val startMs = SystemClock.elapsedRealtime()
         AppLog.i(TAG, "STARTUP T2 preloadFirstPage start")
-        runCatching {
+        catchingRequest {
             loadSharedFirstPage(pageSize = PRELOAD_PAGE_SIZE, reason = "preload")
         }.onSuccess { page ->
             AppLog.i(TAG, "STARTUP T3 preload api done items=${page.items.size} hasMore=${page.hasMore}")
@@ -50,53 +52,15 @@ class RecommendFeedRepository(
         pageSize: Int = PRELOAD_PAGE_SIZE,
         reason: String
     ): NetworkPage {
-        preloadedFirstPage?.let { page ->
-            AppLog.i(TAG, "STARTUP sharedFirstPage hit reason=$reason items=${page.items.size}")
-            return page
-        }
-
-        var owner = false
-        val deferred = synchronized(firstPageLock) {
-            preloadedFirstPage?.let { page ->
-                CompletableDeferred(page)
-            } ?: firstPageInFlight ?: CompletableDeferred<NetworkPage>().also { created ->
-                firstPageInFlight = created
-                owner = true
+        ensureDataRuntimeReady("sharedFirstPage/$reason")
+        val session = RequestSessionScope.capture()
+        preloadedFirstPage?.takeIf { it.first == session }?.let { return it.second }
+        return firstPages.getOrLoad(FirstPageKey(session, pageSize)) {
+            loadNetworkPage(1, pageSize, 1, 1).getOrThrow().also { page ->
+                RequestSessionScope.requireCurrent(session)
+                preloadedFirstPage = session to page
             }
-        }
-
-        if (!owner) {
-            val waitStartMs = SystemClock.elapsedRealtime()
-            AppLog.i(TAG, "STARTUP sharedFirstPage await reason=$reason")
-            return deferred.await().also { page ->
-                AppLog.i(
-                    TAG,
-                    "STARTUP sharedFirstPage await_done reason=$reason elapsed=${SystemClock.elapsedRealtime() - waitStartMs}ms items=${page.items.size}"
-                )
-            }
-        }
-
-        val startMs = SystemClock.elapsedRealtime()
-        AppLog.i(TAG, "STARTUP sharedFirstPage owner reason=$reason")
-        return try {
-            ensureDataRuntimeReady("sharedFirstPage/$reason")
-            val page = loadNetworkPage(page = 1, pageSize = pageSize, freshIdx = 1, fetchRow = 1).getOrThrow()
-            preloadedFirstPage = page
-            deferred.complete(page)
-            AppLog.i(
-                TAG,
-                "STARTUP sharedFirstPage owner_done reason=$reason elapsed=${SystemClock.elapsedRealtime() - startMs}ms items=${page.items.size}"
-            )
-            page
-        } catch (throwable: Throwable) {
-            deferred.completeExceptionally(throwable)
-            synchronized(firstPageLock) {
-                if (firstPageInFlight === deferred) {
-                    firstPageInFlight = null
-                }
-            }
-            throw throwable
-        }
+        }.also { RequestSessionScope.requireCurrent(session) }
     }
 
     private suspend fun ensureDataRuntimeReady(reason: String) {
@@ -141,7 +105,7 @@ class RecommendFeedRepository(
         pageSize: Int,
         freshIdx: Int,
         fetchRow: Int
-    ): Result<NetworkPage> = runCatching {
+    ): Result<NetworkPage> = catchingRequest {
         loadAppFeedPageIfAvailable(pageSize, freshIdx, fetchRow)
             ?: loadWebFeedPage(page, pageSize, freshIdx, fetchRow)
     }
@@ -202,7 +166,7 @@ class RecommendFeedRepository(
     fun updatePreloadedFirstPage(page: NetworkPage) {
         if (page.items.isEmpty()) return
         AppLog.i(TAG, "updatePreloadedFirstPage items=${page.items.size} source=${page.source}")
-        preloadedFirstPage = page
+        preloadedFirstPage = RequestSessionScope.capture() to page
     }
 
     private suspend fun loadWebFeedPage(
@@ -213,7 +177,7 @@ class RecommendFeedRepository(
     ): NetworkPage {
         val t0 = SystemClock.elapsedRealtime()
         val source = "recommend_v8(page=$page,freshIdx=$freshIdx,fetchRow=$fetchRow,ps=$pageSize)"
-        val recommendResult = runCatching {
+        val recommendResult = catchingRequest {
             BiliApi.recommendV8(freshIdx = freshIdx, ps = pageSize, fetchRow = fetchRow)
         }.getOrElse { throwable ->
             AppLog.w(TAG, "$source failed: ${throwable.message}; fallback V1")

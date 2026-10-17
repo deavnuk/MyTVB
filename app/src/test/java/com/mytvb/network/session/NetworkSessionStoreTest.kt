@@ -13,6 +13,15 @@ import org.junit.Test
 class NetworkSessionStoreTest {
 
     @Test
+    fun anonymousNavCannotReplaceLoggedInUser() {
+        val store = NetworkSessionStore(-101)
+        store.updateUserSession(UserDetailInfoModel(isLogin = true, mid = 123))
+        val response = BaseResponse(data = UserDetailInfoModel(isLogin = false))
+        assertNull(store.syncUserSession(response, context = AuthContext.BACKGROUND))
+        assertEquals(123L, store.getUserInfo()?.mid)
+    }
+
+    @Test
     fun updateUserSession_normalizes_avatar_and_extracts_wbi_keys() {
         val store = NetworkSessionStore(authInvalidCode = -101)
 

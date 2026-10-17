@@ -1,5 +1,6 @@
 package com.mytvb.network.session
 
+import com.mytvb.core.common.coroutine.catchingRequest
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.model.BaseResponse
 import com.mytvb.network.security.RiskControlCooldownManager
@@ -36,7 +37,7 @@ class RiskControlRetryExecutor(
         AppLog.w("RiskRetry", "$source hit retryable error: code=${response.code}, key=$key, cooldown=${cooldownMs}ms")
         if (cooldownMs > 0) delay(cooldownMs)
         prewarmWebSession(true)
-        runCatching { forceWbiRefresh() }
+        catchingRequest { forceWbiRefresh() }
             .onFailure { AppLog.w("RiskRetry", "$source forceWbiRefresh failed: ${it.message}") }
         val retryResponse = block(1)
         if (retryResponse.isSuccess) cooldownManager.recordSuccess(key)
@@ -64,7 +65,7 @@ class RiskControlRetryExecutor(
         AppLog.w("RiskRetry", "$source hit retryable error: code=$code, key=$key, cooldown=${cooldownMs}ms")
         if (cooldownMs > 0) delay(cooldownMs)
         prewarmWebSession(true)
-        runCatching { forceWbiRefresh() }
+        catchingRequest { forceWbiRefresh() }
             .onFailure { AppLog.w("RiskRetry", "$source forceWbiRefresh failed: ${it.message}") }
         val retryResponse = block()
         if (getIsSuccess(retryResponse)) cooldownManager.recordSuccess(key)

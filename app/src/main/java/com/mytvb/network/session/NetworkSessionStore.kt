@@ -156,10 +156,14 @@ class NetworkSessionStore(
         context: AuthContext = AuthContext.FOREGROUND,
         onAuthInvalid: (() -> Unit)? = null
     ): UserDetailInfoModel? {
-        val info = response.data?.takeIf { response.isSuccess }
+        val info = response.data?.takeIf { response.isSuccess && it.isLogin }
         if (info != null) {
             updateUserSession(info)
             return userInfo
+        }
+        if (response.isSuccess && response.data != null) {
+            extractWbiKeysFromData(response.data)
+            return null
         }
         if (isAuthInvalid(response.code)) {
             extractWbiKeysFromData(response.data)

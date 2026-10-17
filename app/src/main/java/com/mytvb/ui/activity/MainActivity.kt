@@ -1025,6 +1025,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         super.onResume()
         AppLog.i(TEEN_REST_DIAG_TAG, "onResume after super, before refresh")
         refreshTeenRestOverlay()
+        // TV 常年挂机不杀进程时，启动期那次健康检查可能已是几天前的最后一次；
+        // resume 补查一次，24h 频控保证真实请求每天最多一次，并发由 inFlight 守卫合并
+        lifecycleScope.launch { checkSessionHealthOnStartup() }
     }
 
     override fun onPause() {

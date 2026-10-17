@@ -40,6 +40,8 @@ object NetworkManager {
     private const val KEY_HTTP_CACHE_SCHEMA = "http_cache_schema"
     private const val KEY_SESSION_HEALTH_CHECK_TS = "session_health_check_ts"
     private const val SESSION_HEALTH_CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000
+    /** -101 软清后的恢复调度节流，防止并行请求同时失效触发恢复风暴 */
+    private const val SOFT_CLEAR_RECOVERY_THROTTLE_MS = 60_000L
     /** 修改 HTTP 协商缓存结构时递增此值，可以在用户下次冷启动时一次性清空旧缓存。*/
     private const val HTTP_CACHE_SCHEMA = 1
 
@@ -52,6 +54,14 @@ object NetworkManager {
 
     @Volatile
     private var coreInitialized = false
+
+    /** 健康检查进行中标记：onResume 补查/启动任务/软清恢复并发时合并为一次 */
+    @Volatile
+    private var sessionHealthCheckInFlight = false
+
+    @Volatile
+    private var lastSoftClearRecoveryAt = 0L
+    private val softClearRecoveryLock = Any()
 
     private val userAgentStore = DesktopUserAgentStore(
         defaultUserAgent = DEFAULT_UA,
@@ -265,6 +275,36 @@ object NetworkManager {
             // 服务端 -101 失效也会走这里；只有状态真正发生跳变才广播，防并行请求事件风暴
             notifySessionChanged()
         }
+        scheduleSoftClearRecovery()
+    }
+
+    /**
+     * -101 软清后 SESSDATA 仍在本地但已被服务端拒绝，timeline 等降级型接口不会再回
+     * -101，被动检测从此静默；在软清现场主动补一次健康检查（内部先试 refresh_token
+     * 恢复、确认失效则全清），把"静默降级池"窗口从下一次冷启动（最长 24h）压到分钟级。
+     * 并行请求同时 -101 时靠 [SOFT_CLEAR_RECOVERY_THROTTLE_MS] 节流合并为一次。
+     */
+    private fun scheduleSoftClearRecovery() {
+        val now = System.currentTimeMillis()
+        synchronized(softClearRecoveryLock) {
+            if (now - lastSoftClearRecoveryAt < SOFT_CLEAR_RECOVERY_THROTTLE_MS) return
+            lastSoftClearRecoveryAt = now
+        }
+        Thread({
+            val result = runCatching {
+                kotlinx.coroutines.runBlocking { checkSessionHealth(force = true) }
+            }.getOrNull()
+            AppLog.i(TAG, "softClear recovery check finished: result=$result")
+            if (result == SessionHealthResult.EXPIRED_CLEARED) {
+                appContext?.let { ctx ->
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        runCatching { com.mytvb.core.ui.base.AppToast.show(ctx, com.mytvb.R.string.session_expired_relogin) }
+                    }
+                }
+            }
+        }, "session-softclear-recovery").apply {
+            isDaemon = true
+        }.start()
     }
 
     suspend fun tryRecoverExpiredSession(): Boolean {
@@ -335,39 +375,51 @@ object NetworkManager {
      * 内部全清（含 cookie）并广播 UserSessionChanged。
      */
     suspend fun checkSessionHealth(force: Boolean = false): SessionHealthResult {
-        if (!internalCookieManager.hasSessionCookie()) {
-            return SessionHealthResult.SKIP_NO_COOKIE
-        }
-        val store = runCatching {
-            KoinPlatform.getKoin().get<AppSettingsDataStore>()
-        }.getOrNull() ?: return SessionHealthResult.NETWORK_ERROR
-        val now = System.currentTimeMillis()
-        if (!force && store.getCachedLong(KEY_SESSION_HEALTH_CHECK_TS) > 0L &&
-            now - store.getCachedLong(KEY_SESSION_HEALTH_CHECK_TS) < SESSION_HEALTH_CHECK_INTERVAL_MS
-        ) {
+        // 启动任务 / onResume 补查 / 软清恢复可能并发进入；已有一个检查在飞时它的
+        // 结论覆盖本次需求，直接跳过，避免 nav 双请求与恢复双跑
+        if (sessionHealthCheckInFlight) {
             return SessionHealthResult.SKIP_THROTTLED
         }
-        return try {
-            val nav = apiService.getUserDetailInfo()
-            if (nav.isSuccess && nav.data?.isLogin == true) {
-                sessionStore.updateUserSession(nav.data)
-                store.putLongAsync(KEY_SESSION_HEALTH_CHECK_TS, now)
-                AppLog.i(TAG, "checkSessionHealth: valid session mid=${nav.data?.mid}")
-                SessionHealthResult.LOGGED_IN
-            } else {
-                AppLog.w(
-                    TAG,
-                    "checkSessionHealth: cookie rejected (isLogin=false), attempting recovery"
-                )
-                val recovered = tryRecoverExpiredSession()
-                store.putLongAsync(KEY_SESSION_HEALTH_CHECK_TS, now)
-                if (recovered) SessionHealthResult.RECOVERED else SessionHealthResult.EXPIRED_CLEARED
+        sessionHealthCheckInFlight = true
+        try {
+            if (!internalCookieManager.hasSessionCookie()) {
+                AppLog.d(TAG, "checkSessionHealth: skip, no session cookie")
+                return SessionHealthResult.SKIP_NO_COOKIE
             }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            // 网络失败不落检查时间戳，下次启动还有机会查
-            AppLog.w(TAG, "checkSessionHealth: network error, keep session (${e.message})")
-            SessionHealthResult.NETWORK_ERROR
+            val store = runCatching {
+                KoinPlatform.getKoin().get<AppSettingsDataStore>()
+            }.getOrNull() ?: return SessionHealthResult.NETWORK_ERROR
+            val now = System.currentTimeMillis()
+            if (!force && store.getCachedLong(KEY_SESSION_HEALTH_CHECK_TS) > 0L &&
+                now - store.getCachedLong(KEY_SESSION_HEALTH_CHECK_TS) < SESSION_HEALTH_CHECK_INTERVAL_MS
+            ) {
+                AppLog.d(TAG, "checkSessionHealth: skip, checked recently (force=$force)")
+                return SessionHealthResult.SKIP_THROTTLED
+            }
+            return try {
+                val nav = apiService.getUserDetailInfo()
+                if (nav.isSuccess && nav.data?.isLogin == true) {
+                    sessionStore.updateUserSession(nav.data)
+                    store.putLongAsync(KEY_SESSION_HEALTH_CHECK_TS, now)
+                    AppLog.i(TAG, "checkSessionHealth: valid session mid=${nav.data?.mid}")
+                    SessionHealthResult.LOGGED_IN
+                } else {
+                    AppLog.w(
+                        TAG,
+                        "checkSessionHealth: cookie rejected (isLogin=false), attempting recovery"
+                    )
+                    val recovered = tryRecoverExpiredSession()
+                    store.putLongAsync(KEY_SESSION_HEALTH_CHECK_TS, now)
+                    if (recovered) SessionHealthResult.RECOVERED else SessionHealthResult.EXPIRED_CLEARED
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                // 网络失败不落检查时间戳，下次启动还有机会查
+                AppLog.w(TAG, "checkSessionHealth: network error, keep session (${e.message})")
+                SessionHealthResult.NETWORK_ERROR
+            }
+        } finally {
+            sessionHealthCheckInFlight = false
         }
     }
 

@@ -168,7 +168,9 @@ class LivePlayerFragment : Fragment() {
         debugScReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 val extras = intent.extras ?: return
-                // am broadcast --ei 传的是 Int，直接 getLong 会拿默认值，按实际类型取
+                // am broadcast --ei 传的是 Int，直接 getLong 会拿默认值，按实际类型取；
+                // BaseBundle.get(String) 已废弃但这里是刻意类型无关（--ei/--el 混用），无 typed 等价物
+                @Suppress("DEPRECATION")
                 fun extraLong(name: String, def: Long): Long = when (val v = extras.get(name)) {
                     is Long -> v
                     is Int -> v.toLong()

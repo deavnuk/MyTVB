@@ -165,8 +165,10 @@ class HomeLaneRepository(
                     .orEmpty()
                 // pgc/web/timeline 无有效 SESSDATA 时返回 code=0 的降级池（每天仅几条
                 // 少儿/长寿番，无当季新番），与登录态数据完全不同；此处留痕便于从日志
-                // 直接识别"时间表内容不对"是登录态问题而非解析问题
-                if (!NetworkManager.isLoggedIn()) {
+                // 直接识别"时间表内容不对"是登录态问题而非解析问题。
+                // 判定用 userInfo 而非 isLoggedIn()：后者只看 SESSDATA 在场，-101 软清后
+                // cookie 留存（服务端已拒绝）会漏告警
+                if (NetworkManager.getUserInfo() == null) {
                     AppLog.w(
                         TAG,
                         "timeline fetched without login session, degraded pool expected " +

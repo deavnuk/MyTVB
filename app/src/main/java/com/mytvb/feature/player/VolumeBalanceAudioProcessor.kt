@@ -198,7 +198,7 @@ internal class VolumeBalanceAudioProcessor : BaseAudioProcessor() {
         }
     }
 
-    override fun onFlush() {
+    override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
         resetAdaptiveState()
     }
 

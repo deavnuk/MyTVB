@@ -36,8 +36,12 @@ object AppToast {
     ) {
         val toast = Toast.makeText(context, text, duration)
         // 系统 text toast 的 message 字号被钉死 scaledDensity 劫持，直写 px 池字号
-        // 并乘全局字体档；view 拿不到的防御路径按系统原样显示
-        toast.view?.findViewById<TextView>(android.R.id.message)?.setTextSize(
+        // 并乘全局字体档；view 拿不到的防御路径按系统原样显示。
+        // getView 在 API 30+ 已废弃（text toast 恒返回 null），但 API<30 上仍能拿到
+        // message TextView 完成字号改写，minSdk 23 前这段必须保留
+        @Suppress("DEPRECATION")
+        val messageView = toast.view?.findViewById<TextView>(android.R.id.message)
+        messageView?.setTextSize(
             TypedValue.COMPLEX_UNIT_PX,
             context.resources.getDimension(R.dimen.px36) * UiTextScale.scale()
         )

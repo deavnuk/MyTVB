@@ -49,7 +49,17 @@ object SessionStorageCipher {
                 init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, unb64(parts[0])))
             }
             String(cipher.doFinal(unb64(parts[1])), StandardCharsets.UTF_8)
-        }.getOrElse { "" }
+        }.getOrElse { failure ->
+            // Keystore 密钥被系统重置（恢复出厂/清应用数据）时密文全部解不开，身份
+            // cookie 会被整体丢弃成未登录态；留痕（不含密文内容）避免"莫名被登出"
+            // 排查无线索。用 android.util.Log 而非 AppLog，避免 core 模块反向依赖
+            android.util.Log.w(
+                "SessionStorageCipher",
+                "Keystore decryption failed (len=${value.length}); value dropped",
+                failure
+            )
+            ""
+        }
     }
 
     private fun key(): SecretKey {

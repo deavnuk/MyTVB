@@ -6,12 +6,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
 import android.graphics.Canvas
+import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.ViewTreeObserver
 import android.widget.ImageView
 import android.os.SystemClock
@@ -548,6 +550,9 @@ object ImageLoader {
         val ctx = imageView.context
         if (ctx is Activity && ctx.isDestroyed) return
 
+        // 圆角走 view outline 裁剪（屏幕像素口径），不画进 bitmap：见 applyCoverCornerClip
+        applyCoverCornerClip(imageView, cornerRadius)
+
         // URL 为空：清空
         if (url.isBlank()) {
             inFlight.remove(imageView)?.cancel()
@@ -571,7 +576,7 @@ object ImageLoader {
             clearPreDrawDeferredLoad(imageView)
         }
 
-        transformCacheKey(url, circleCrop, cornerRadius)?.let { key ->
+        transformCacheKey(url, circleCrop)?.let { key ->
             val transformedCached = cache.get(key)
             if (transformedCached != null) {
                 AppLog.i(TAG, "cover transform memory hit url=${url.takeLast(50)}")
@@ -585,7 +590,7 @@ object ImageLoader {
         val cached = cache.get(url)
         if (cached != null) {
             AppLog.i(TAG, "cover memory hit url=${url.takeLast(50)}")
-            imageView.setImageBitmap(applyTransform(url, cached, circleCrop, cornerRadius))
+            imageView.setImageBitmap(applyTransform(url, cached, circleCrop))
             onSuccess?.invoke(cached)
             return
         }
@@ -657,7 +662,7 @@ object ImageLoader {
                         var applyMs = 0L
                         if ((imageView.getTag(R.id.tag_image_loader_url) as? String) == url) {
                             val applyStartMs = SystemClock.elapsedRealtime()
-                            imageView.setImageBitmap(applyTransform(url, bmp, circleCrop, cornerRadius))
+                            imageView.setImageBitmap(applyTransform(url, bmp, circleCrop))
                             applyMs = SystemClock.elapsedRealtime() - applyStartMs
                         }
                         AppLog.i(TAG, "cover loaded: elapsed=${SystemClock.elapsedRealtime() - startMs}ms await=${awaitMs}ms queue=${data.queueMs}ms fetch=${fetchMs}ms decode=${decodeMs}ms apply=${applyMs}ms priority=${data.priority} shared=${request.reused} diskCache=${data.diskCacheHit} bytes=${bytes.size} url=${url.takeLast(50)}")
@@ -1173,24 +1178,48 @@ object ImageLoader {
 
     // ---------- 变换 ----------
 
-    private fun applyTransform(url: String, bmp: Bitmap, circleCrop: Boolean, cornerRadius: Float): Bitmap {
-        val key = transformCacheKey(url, circleCrop, cornerRadius) ?: return bmp
+    private fun applyTransform(url: String, bmp: Bitmap, circleCrop: Boolean): Bitmap {
+        if (!circleCrop) return bmp
+        val key = transformCacheKey(url, circleCrop) ?: return bmp
         cache.get(key)?.let { return it }
-        val transformed = when {
-            circleCrop -> circleCrop(bmp)
-            cornerRadius > 0f -> roundCorners(bmp, cornerRadius)
-            else -> bmp
-        }
-        if (transformed !== bmp) {
-            cache.put(key, transformed)
-        }
+        val transformed = circleCrop(bmp)
+        cache.put(key, transformed)
         return transformed
     }
 
-    private fun transformCacheKey(url: String, circleCrop: Boolean, cornerRadius: Float): String? {
-        if (circleCrop) return "$url#circle"
-        if (cornerRadius > 0f) return "$url#round:${cornerRadius.toInt()}"
-        return null
+    /** 圆角不进 transform 缓存：圆角由 view 的 outline 裁剪负责（见 applyCoverCornerClip），
+     *  同一张图能被不同尺寸的 ImageView 复用，无需按半径各存一份。 */
+    private fun transformCacheKey(url: String, circleCrop: Boolean): String? =
+        if (circleCrop) "$url#circle" else null
+
+    /**
+     * 封面圆角交由 view 的 outline 裁剪，半径是与角标同一套的屏幕像素值。
+     *
+     * 从前圆角是画进 bitmap 的：bitmap 装进卡片时按 centerCrop 缩小，圆角同比
+     * 缩水（如 320w 图源缩到约 180px 宽，px15 只剩一半），而贴着封面角的角标是
+     * 矢量背景、恒为 px15，角标圆角处就漏出一点封面图。outline 裁剪不随图源尺寸
+     * 变化，与角标、卡片圆角恒等，顺带把占位图与 GIF 图源一起裁住。
+     */
+    private fun applyCoverCornerClip(imageView: ImageView, cornerRadius: Float) {
+        if (cornerRadius <= 0f) return
+        val current = imageView.outlineProvider
+        if (current !is RoundedCoverOutlineProvider ||
+            current.radius != cornerRadius ||
+            !imageView.clipToOutline
+        ) {
+            imageView.outlineProvider = RoundedCoverOutlineProvider(cornerRadius)
+            imageView.clipToOutline = true
+            imageView.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                view.invalidateOutline()
+            }
+        }
+        imageView.invalidateOutline()
+    }
+
+    private class RoundedCoverOutlineProvider(val radius: Float) : ViewOutlineProvider() {
+        override fun getOutline(view: View, outline: Outline) {
+            outline.setRoundRect(0, 0, view.width, view.height, radius)
+        }
     }
 
     private fun circleCrop(src: Bitmap): Bitmap {
@@ -1205,15 +1234,6 @@ object ImageLoader {
         canvas.translate(-x.toFloat(), -y.toFloat())
         val r = size / 2f
         canvas.drawCircle(x + r, y + r, r, paint)
-        return result
-    }
-
-    private fun roundCorners(src: Bitmap, radius: Float): Bitmap {
-        val result = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(result)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        canvas.drawRoundRect(0f, 0f, src.width.toFloat(), src.height.toFloat(), radius, radius, paint)
         return result
     }
 

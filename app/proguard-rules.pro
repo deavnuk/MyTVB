@@ -75,6 +75,16 @@
     public static int i(...);
 }
 
+# protobuf-javalite：jar 依赖不自带 consumer 规则，生成类的字段必须手动保留。
+# 运行时 MessageSchema 按字段名反射访问生成类字段（如热门 gRPC 请求的 idx_），
+# 字段被 R8 改名即抛 "Field idx_ for x4.c not found. Known fields are [...]"
+# （release 包热门 tab 必现；debug 不混淆所以开发期无感知）。
+-keep class com.google.protobuf.** { *; }
+-keep class bilibili.** { *; }
+-keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite {
+    <fields>;
+}
+
 # Kotlin 协程
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}

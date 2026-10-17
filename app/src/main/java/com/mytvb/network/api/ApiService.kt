@@ -492,11 +492,6 @@ interface ApiService {
     ): BaseResponse<JsonObject>
 
     @GET("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo")
-    suspend fun getLiveChatRoomUrl(
-        @Query("id") id: Long
-    ): BaseResponse<ChatRoomWrapper>
-
-    @GET("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo")
     suspend fun getLiveDanmuInfoSigned(
         @QueryMap params: Map<String, String>
     ): BaseResponse<ChatRoomWrapper>

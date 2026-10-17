@@ -126,7 +126,8 @@ interface NetworkSessionGateway {
 class NetworkManagerSessionGateway : NetworkSessionGateway, SessionStateRepository {
 
     private val riskControlRetryExecutor = RiskControlRetryExecutor(
-        prewarmWebSession = { forceUaRefresh -> NetworkManager.prewarmWebSession(forceUaRefresh) }
+        prewarmWebSession = { forceUaRefresh -> NetworkManager.prewarmWebSession(forceUaRefresh) },
+        forceWbiRefresh = { NetworkManager.ensureWbiKeys() }
     )
 
     override fun getCsrfToken(): String = NetworkManager.getCsrfToken()

@@ -15,8 +15,11 @@ sealed interface ActionError {
 
 object AuthErrorClassifier {
 
-    private val riskControlCodes = setOf(-352, -351)
-    private val frequencyLimitCodes = setOf(-412)
+    // -403: WBI 签名失败专用码（签错返回 -403 而非 -352，漏了会导致签名过期后一路失败不重试）
+    // 22015: 动态流风控码
+    private val riskControlCodes = setOf(-352, -351, -403, 22015)
+    // -509 / 34004: 请求过快类限流码（对标 BiliPai 的可重试集合）
+    private val frequencyLimitCodes = setOf(-412, -509, 34004)
     private val riskControlKeywords = listOf("风控", "拦截", "风险", "神秘力量", "risk", "blocked")
     private val frequencyLimitKeywords = listOf("频繁", "过快", "稍后", "too many", "rate limit")
 

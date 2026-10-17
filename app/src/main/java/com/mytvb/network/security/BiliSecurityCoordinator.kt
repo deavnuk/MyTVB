@@ -394,7 +394,10 @@ class BiliSecurityCoordinator(
     private suspend fun ensureBuvidActiveOncePerDay() {
         withContext(Dispatchers.IO) {
             val midStr = cookieManager.getCookieValue("DedeUserID")?.trim().orEmpty()
-            val mid = midStr.toLongOrNull()?.takeIf { it > 0 } ?: return@withContext
+            // 游客（mid=0）同样要激活：未激活的 buvid 信誉低，游客态请求更容易吃 -352；
+            // ExClimbWuzhi 本身不要求登录身份，身份头与身份 cookie 仅登录时携带。
+            // 上报指纹的 adca 平台字段必须与请求 UA（Windows NT 10.0）一致，矛盾会扣风控分
+            val mid = midStr.toLongOrNull()?.takeIf { it > 0 } ?: 0L
             val epochDay = System.currentTimeMillis() / 86_400_000L
             if (buvidActivatedMid == mid && buvidActivatedDay == epochDay) return@withContext
 
@@ -418,7 +421,7 @@ class BiliSecurityCoordinator(
                     val jsonData = JSONObject()
                         .put("3064", 1)
                         .put("39c8", "333.1387.fp.risk")
-                        .put("3c43", JSONObject().put("adca", "Linux").put("bfe9", randPngEnd.takeLast(50)))
+                        .put("3c43", JSONObject().put("adca", "Windows").put("bfe9", randPngEnd.takeLast(50)))
                         .toString()
 
                     val payload = JSONObject().put("payload", jsonData).toString()
@@ -436,9 +439,11 @@ class BiliSecurityCoordinator(
                         .header("Content-Type", "application/json")
                         .header("env", "prod")
                         .header("x-bili-aurora-zone", "sh001")
-                        .header("x-bili-mid", mid.toString())
                         .apply {
-                            genAuroraEid(mid)?.let { header("x-bili-aurora-eid", it) }
+                            if (mid > 0) {
+                                header("x-bili-mid", mid.toString())
+                                genAuroraEid(mid)?.let { header("x-bili-aurora-eid", it) }
+                            }
                         }
                         .header("Referer", "https://www.bilibili.com")
                         .header("Cookie", cookieHeader)

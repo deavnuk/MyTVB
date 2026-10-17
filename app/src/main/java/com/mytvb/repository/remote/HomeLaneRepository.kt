@@ -15,6 +15,7 @@ import com.mytvb.model.series.SeriesType
 import com.mytvb.model.series.timeline.SeriesTimeLineModel
 import com.mytvb.model.series.timeline.TimeLineADayModel
 import com.mytvb.network.api.ApiService
+import com.mytvb.network.NetworkManager
 import com.mytvb.network.session.NetworkSessionGateway
 import com.mytvb.repository.UserRepository
 import com.mytvb.core.common.log.AppLog
@@ -147,21 +148,79 @@ class HomeLaneRepository(
 
     suspend fun getAnimationTimelineSection(): Result<HomeLaneSection?> {
         return try {
-            val response = apiService.getSeriesTimeLine(
-                type = SeriesType.ANIME,
-                before = 6,
-                after = 6
-            )
-            if (response.code != 0) {
-                throw IllegalStateException(response.message)
+            coroutineScope {
+                // 官方番剧频道时间表 = 日本番剧(types=1) + 国创(types=4) 两池按天合并，
+                // 对标 BiliPai/官方 App；只拉 types=1 会缺国创条目，同一天数量对不上
+                val animeDeferred = async {
+                    apiService.getSeriesTimeLine(type = SeriesType.ANIME, before = 6, after = 6)
+                }
+                val guochuangDeferred = async {
+                    apiService.getSeriesTimeLine(type = SeriesType.CHINA_ANIME, before = 6, after = 6)
+                }
+                val animeDays = animeDeferred.await()
+                    .takeIf { it.code == 0 }?.result
+                    ?: throw IllegalStateException("timeline(anime) failed")
+                val guochuangDays = guochuangDeferred.await()
+                    .takeIf { it.code == 0 }?.result
+                    .orEmpty()
+                // pgc/web/timeline 无有效 SESSDATA 时返回 code=0 的降级池（每天仅几条
+                // 少儿/长寿番，无当季新番），与登录态数据完全不同；此处留痕便于从日志
+                // 直接识别"时间表内容不对"是登录态问题而非解析问题
+                if (!NetworkManager.isLoggedIn()) {
+                    AppLog.w(
+                        TAG,
+                        "timeline fetched without login session, degraded pool expected " +
+                            "(today=${animeDays.firstOrNull { it.isToday == 1 }?.episodes?.size ?: 0} eps)"
+                    )
+                }
+                val merged = mergeTimelineDays(animeDays, guochuangDays)
+                AppLog.i(
+                    TAG,
+                    "timeline merged anime=${animeDays.sumOf { it.episodes.size }} " +
+                        "guochuang=${guochuangDays.sumOf { it.episodes.size }} " +
+                        "total=${merged.sumOf { it.episodes.size }}"
+                )
+                Result.success(buildTimelineSection(merged))
             }
-            Result.success(buildTimelineSection(response.result))
         } catch (throwable: CancellationException) {
             throw throwable
         } catch (throwable: Throwable) {
             AppLog.e(TAG, "getAnimationTimelineSection failure: ${throwable.message}", throwable)
             Result.failure(throwable)
         }
+    }
+
+    /**
+     * 番剧(types=1)与国创(types=4)两份时间表按天合并：date 相同的天 episodes
+     * 拼接并按 episodeId+seasonId 去重（两池偶有交叉条目）、pubTs 升序；
+     * 天按 dateTs 升序排列，容错语义与 BiliPai 的 mergeBangumiTimelineDays 一致。
+     */
+    private fun mergeTimelineDays(
+        animeDays: List<TimeLineADayModel>,
+        guochuangDays: List<TimeLineADayModel>
+    ): List<TimeLineADayModel> {
+        val daysByDate = linkedMapOf<String, TimeLineADayModel>()
+        (animeDays + guochuangDays)
+            .sortedWith(compareBy<TimeLineADayModel> { it.dateTs }.thenBy { it.date })
+            .forEach { day ->
+                val key = day.date.ifBlank { day.dateTs.toString() }
+                val previous = daysByDate[key]
+                if (previous == null) {
+                    daysByDate[key] = day.copy(
+                        episodes = day.episodes.distinctBy { it.episodeId to it.seasonId }
+                    )
+                } else {
+                    daysByDate[key] = previous.copy(
+                        dateTs = listOf(previous.dateTs, day.dateTs).filter { it > 0L }.minOrNull() ?: 0L,
+                        dayOfWeek = previous.dayOfWeek.takeIf { it != 0 } ?: day.dayOfWeek,
+                        isToday = maxOf(previous.isToday, day.isToday),
+                        episodes = (previous.episodes + day.episodes)
+                            .distinctBy { it.episodeId to it.seasonId }
+                            .sortedBy { it.pubTs }
+                    )
+                }
+            }
+        return daysByDate.values.toList()
     }
 
     private suspend fun fetchLegacyHomeLanes(

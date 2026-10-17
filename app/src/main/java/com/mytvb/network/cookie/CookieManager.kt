@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.core.common.settings.AppSettingsDataStore
+import com.mytvb.network.security.SessionStorageCipher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -159,13 +160,13 @@ class CookieManager : CookieJar {
         return try {
             val parts = cookieString.split(";").map { it.trim() }
             if (parts.isEmpty()) return null
-            
+
             val nameValue = parts[0].split("=", limit = 2)
             if (nameValue.size != 2) return null
-            
+
             val builder = Cookie.Builder()
                 .name(nameValue[0])
-                .value(nameValue[1])
+                .value(decryptProtectedValue(nameValue[0], nameValue[1]))
             
             parts.drop(1).forEach { part ->
                 when {
@@ -217,7 +218,7 @@ class CookieManager : CookieJar {
     
     private fun encodeCookie(cookie: Cookie): String {
         val sb = StringBuilder()
-        sb.append(cookie.name).append("=").append(cookie.value)
+        sb.append(cookie.name).append("=").append(encryptProtectedValue(cookie.name, cookie.value))
         sb.append("; domain=").append(normalizeDomain(cookie.domain))
         sb.append("; path=").append(cookie.path)
         if (cookie.secure) sb.append("; secure")
@@ -225,6 +226,20 @@ class CookieManager : CookieJar {
             sb.append("; expires=").append(cookie.expiresAt)
         }
         return sb.toString()
+    }
+
+    /**
+     * 身份 cookie（SESSDATA 等）落盘前加密；历史明文不带 v1: 前缀，decrypt 原样透传，
+     * 下一次写盘自然升级为密文。Keystore 抖动导致加密失败时保留明文写盘，不丢会话。
+     */
+    private fun encryptProtectedValue(name: String, value: String): String {
+        if (name !in PROTECTED_COOKIE_NAMES) return value
+        return SessionStorageCipher.encrypt(value) ?: value
+    }
+
+    private fun decryptProtectedValue(name: String, value: String): String {
+        if (name !in PROTECTED_COOKIE_NAMES) return value
+        return SessionStorageCipher.decrypt(value)
     }
 
     private fun normalizeDomain(domain: String): String {

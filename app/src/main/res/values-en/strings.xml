@@ -393,6 +393,7 @@
     <string name="update_found_new">New version found</string>
     <string name="update_download_action">Download update</string>
     <string name="update_later">Later</string>
+    <string name="session_expired_relogin">Login expired, please sign in again</string>
     <string name="update_downloading_title">Downloading update</string>
     <string name="connecting">Connecting…</string>
     <string name="retrying_format">Connection failed, retrying (%1$d/%2$d)…</string>

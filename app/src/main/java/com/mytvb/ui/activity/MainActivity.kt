@@ -658,7 +658,29 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             .addTask("autoUpdateCheck", AppStartupScheduler.Phase.DELAYED, delayMs = 6000L) {
                 lifecycleScope.launch { checkUpdateOnStartup() }
             }
+            // 登录态健康检查：SESSDATA 过期后降级型接口（时间表等）只回 code=0 的
+            // 兜底数据不报 -101，App 侧无从感知；启动后主动调 nav 校验一次（24h 频控），
+            // 确认失效且恢复失败时提示用户重新扫码登录
+            .addTask("sessionHealthCheck", AppStartupScheduler.Phase.DELAYED, delayMs = 9000L) {
+                lifecycleScope.launch { checkSessionHealthOnStartup() }
+            }
             .execute()
+    }
+
+    /**
+     * 启动后主动校验登录态（见 NetworkManager.checkSessionHealth 注释）。
+     * 仅"确认失效且恢复失败"才提示用户；网络异常静默，下次启动再查。
+     */
+    private suspend fun checkSessionHealthOnStartup() {
+        val result = runCatching { NetworkManager.checkSessionHealth() }
+            .getOrElse {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                AppLog.w("MainActivity", "session health check failed: ${it.message}")
+                return
+            }
+        if (result == NetworkManager.SessionHealthResult.EXPIRED_CLEARED) {
+            AppToast.show(this, R.string.session_expired_relogin)
+        }
     }
 
     /**

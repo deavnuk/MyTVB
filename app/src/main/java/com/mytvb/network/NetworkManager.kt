@@ -38,6 +38,8 @@ object NetworkManager {
     private const val KEY_APP_REFRESH_TOKEN = "app_refresh_token"
     private const val KEY_APP_TOKEN_EXPIRES_AT = "app_token_expires_at"
     private const val KEY_HTTP_CACHE_SCHEMA = "http_cache_schema"
+    private const val KEY_SESSION_HEALTH_CHECK_TS = "session_health_check_ts"
+    private const val SESSION_HEALTH_CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000
     /** 修改 HTTP 协商缓存结构时递增此值，可以在用户下次冷启动时一次性清空旧缓存。*/
     private const val HTTP_CACHE_SCHEMA = 1
 
@@ -279,7 +281,9 @@ object NetworkManager {
         return try {
             securityCoordinator.forceCookieRefresh()
             val navResponse = apiService.getUserDetailInfo()
-            if (navResponse.isSuccess && navResponse.data != null) {
+            // nav 对无效 cookie 返回 code=0 的游客数据（isLogin=false），只认 isLogin
+            // 才算恢复成功，否则游客资料会把本地会话误标成已登录
+            if (navResponse.isSuccess && navResponse.data?.isLogin == true) {
                 sessionStore.updateUserSession(navResponse.data)
                 AppLog.i(TAG, "tryRecoverExpiredSession: session recovered successfully")
                 notifySessionChanged()
@@ -305,6 +309,68 @@ object NetworkManager {
         clearUserSession(clearCookies = true, reason = reason)
     }
 
+    /** 登录态健康检查结果，UI 据此决定是否提示重新登录。 */
+    enum class SessionHealthResult {
+        /** cookie 有效，顺带刷新了本地用户资料 */
+        LOGGED_IN,
+        /** cookie 曾失效，已用 refresh_token 恢复 */
+        RECOVERED,
+        /** 确认失效且恢复失败，已全清会话并广播（该弹提示） */
+        EXPIRED_CLEARED,
+        /** 本地无 SESSDATA，本来就是未登录态 */
+        SKIP_NO_COOKIE,
+        /** 24h 内已查过，本次跳过 */
+        SKIP_THROTTLED,
+        /** 网络异常无法判定，不动会话（下次启动再查） */
+        NETWORK_ERROR
+    }
+
+    /**
+     * 主动校验本地 SESSDATA 在服务端是否仍有效。
+     *
+     * 背景：timeline 等降级型接口在 cookie 失效时返回 code=0 的兜底数据而非 -101，
+     * -101 被动检测永远不触发，失效会话会静默拿到降级池；本检查在冷启动后主动调
+     * nav（带 cookie 的游客响应是 code=0 + isLogin=false，必须看 isLogin 而非 code）
+     * 弥补这一盲区。确认失效时先走 refresh 恢复，恢复失败由 [tryRecoverExpiredSession]
+     * 内部全清（含 cookie）并广播 UserSessionChanged。
+     */
+    suspend fun checkSessionHealth(force: Boolean = false): SessionHealthResult {
+        if (!internalCookieManager.hasSessionCookie()) {
+            return SessionHealthResult.SKIP_NO_COOKIE
+        }
+        val store = runCatching {
+            KoinPlatform.getKoin().get<AppSettingsDataStore>()
+        }.getOrNull() ?: return SessionHealthResult.NETWORK_ERROR
+        val now = System.currentTimeMillis()
+        if (!force && store.getCachedLong(KEY_SESSION_HEALTH_CHECK_TS) > 0L &&
+            now - store.getCachedLong(KEY_SESSION_HEALTH_CHECK_TS) < SESSION_HEALTH_CHECK_INTERVAL_MS
+        ) {
+            return SessionHealthResult.SKIP_THROTTLED
+        }
+        return try {
+            val nav = apiService.getUserDetailInfo()
+            if (nav.isSuccess && nav.data?.isLogin == true) {
+                sessionStore.updateUserSession(nav.data)
+                store.putLongAsync(KEY_SESSION_HEALTH_CHECK_TS, now)
+                AppLog.i(TAG, "checkSessionHealth: valid session mid=${nav.data?.mid}")
+                SessionHealthResult.LOGGED_IN
+            } else {
+                AppLog.w(
+                    TAG,
+                    "checkSessionHealth: cookie rejected (isLogin=false), attempting recovery"
+                )
+                val recovered = tryRecoverExpiredSession()
+                store.putLongAsync(KEY_SESSION_HEALTH_CHECK_TS, now)
+                if (recovered) SessionHealthResult.RECOVERED else SessionHealthResult.EXPIRED_CLEARED
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // 网络失败不落检查时间戳，下次启动还有机会查
+            AppLog.w(TAG, "checkSessionHealth: network error, keep session (${e.message})")
+            SessionHealthResult.NETWORK_ERROR
+        }
+    }
+
     private fun notifySessionChanged() {
         runCatching {
             KoinPlatform.getKoin().get<com.mytvb.event.AppEventHub>()
@@ -324,12 +390,15 @@ object NetworkManager {
     private fun getRefreshToken(): String? {
         return runCatching {
             KoinPlatform.getKoin().get<AppSettingsDataStore>().getCachedString(KEY_REFRESH_TOKEN)
+                ?.let(com.mytvb.network.security.SessionStorageCipher::decrypt)
+                ?.takeIf { it.isNotBlank() }
         }.getOrNull()
     }
 
     private fun saveRefreshToken(token: String) {
         runCatching {
-            KoinPlatform.getKoin().get<AppSettingsDataStore>().putStringAsync(KEY_REFRESH_TOKEN, token)
+            val stored = com.mytvb.network.security.SessionStorageCipher.encrypt(token) ?: token
+            KoinPlatform.getKoin().get<AppSettingsDataStore>().putStringAsync(KEY_REFRESH_TOKEN, stored)
         }.onFailure {
             AppLog.e(TAG, "saveRefreshToken failed: ${it.message}")
         }
@@ -357,7 +426,9 @@ object NetworkManager {
                 AppLog.i(TAG, "app access_token expired at $expiresAt, ignore")
                 ""
             } else {
-                store.getCachedString(KEY_APP_ACCESS_TOKEN).orEmpty()
+                store.getCachedString(KEY_APP_ACCESS_TOKEN)
+                    ?.let(com.mytvb.network.security.SessionStorageCipher::decrypt)
+                    .orEmpty()
             }
         }.getOrNull().orEmpty()
     }
@@ -367,8 +438,14 @@ object NetworkManager {
             val store = KoinPlatform.getKoin().get<AppSettingsDataStore>()
             // 留 1 天提前量，避免拿临界有效 token 打请求
             val usableMs = (expiresInSec - 24L * 60 * 60) * 1000
-            store.putStringAsync(KEY_APP_ACCESS_TOKEN, accessToken)
-            store.putStringAsync(KEY_APP_REFRESH_TOKEN, refreshToken)
+            store.putStringAsync(
+                KEY_APP_ACCESS_TOKEN,
+                com.mytvb.network.security.SessionStorageCipher.encrypt(accessToken) ?: accessToken
+            )
+            store.putStringAsync(
+                KEY_APP_REFRESH_TOKEN,
+                com.mytvb.network.security.SessionStorageCipher.encrypt(refreshToken) ?: refreshToken
+            )
             store.putLongAsync(
                 KEY_APP_TOKEN_EXPIRES_AT,
                 if (usableMs > 0) System.currentTimeMillis() + usableMs else 0L

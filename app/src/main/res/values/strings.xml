@@ -531,6 +531,7 @@
     <string name="update_found_new">发现新版本</string>
     <string name="update_download_action">下载更新</string>
     <string name="update_later">稍后</string>
+    <string name="session_expired_relogin">登录已过期，请重新登录</string>
     <string name="update_downloading_title">正在下载更新</string>
     <string name="connecting">连接中…</string>
     <string name="retrying_format">连接失败，正在重试（%1$d/%2$d）…</string>

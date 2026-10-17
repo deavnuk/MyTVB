@@ -35,15 +35,18 @@
     <string name="player_ui_setting">播放介面</string>
     <string name="about_setting">關於</string>
     <!-- 设置分组标题 -->
-    <string name="setting_group_browse">瀏覽與互動</string>
+    <string name="setting_group_browse">瀏覽與入口</string>
+    <string name="setting_group_interact">互動</string>
     <string name="setting_group_network">網路與帳號</string>
     <string name="setting_group_storage">儲存空間</string>
     <string name="setting_group_appearance">外觀</string>
-    <string name="setting_group_scale">縮放與畫質</string>
-    <string name="setting_group_play_defaults">預設參數</string>
+    <string name="setting_group_scale">縮放與圖片</string>
+    <string name="setting_group_quality">畫質與解碼</string>
+    <string name="setting_group_audio">音質與倍速</string>
     <string name="setting_group_play_behavior">播放行為</string>
     <string name="setting_group_subtitle">字幕</string>
-    <string name="setting_group_controls">控制列顯示</string>
+    <string name="setting_group_progress">進度與資訊</string>
+    <string name="setting_group_controls">控制列按鈕</string>
     <string name="setting_group_dm_switch">開關</string>
     <string name="setting_group_dm_style">樣式</string>
     <string name="setting_group_dm_area">顯示區域</string>
@@ -51,8 +54,7 @@
     <string name="setting_group_teen_time">時間限制</string>
     <string name="setting_group_teen_psas">公益廣告</string>
     <string name="setting_group_about_app">應用程式</string>
-    <string name="setting_group_components">元件</string>
-    <string name="setting_group_diagnostics">診斷</string>
+    <string name="setting_group_diagnostics">元件與診斷</string>
     <string name="confirm">確認</string>
     <string name="confirm_countdown">確認(%d)</string>
     <string name="continue_watch">繼續觀看</string>

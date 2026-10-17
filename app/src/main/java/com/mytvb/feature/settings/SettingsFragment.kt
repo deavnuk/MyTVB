@@ -262,14 +262,16 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         requireContext().localizedSettingLabel(stored)
 
     private fun initSettings() {
-        // 通用：浏览与互动 / 网络与账号 / 存储
+        // 通用：浏览与入口 / 交互 / 网络与账号 / 存储
         commonGroups = listOf(
             SettingGroup(R.string.setting_group_browse, listOf(
                 stored(KEY_DEFAULT_START_PAGE, R.string.default_start_page, "热门"),
                 stored(KEY_HOME_FEED_SOURCE, R.string.home_feed_source, FeedSourceSetting.DEFAULT),
                 stored(KEY_HOT_FEED_SOURCE, R.string.hot_feed_source, FeedSourceSetting.DEFAULT),
                 stored(KEY_LIVE_ENTRY, R.string.live_entry, "关"),
-                stored(KEY_CCTV_LIVE_ENTRY, R.string.cctv_live, "关"),
+                stored(KEY_CCTV_LIVE_ENTRY, R.string.cctv_live, "关")
+            )),
+            SettingGroup(R.string.setting_group_interact, listOf(
                 stored(KEY_SHOW_VIDEO_DETAIL, R.string.show_video_detail_page, "关"),
                 stored(KEY_DOUYIN_MODE, R.string.douyin_mode, "关"),
                 stored(KEY_GIVE_COIN_NUMBER, R.string.give_coin_number, "2")
@@ -285,7 +287,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             ))
         )
 
-        // 显示：外观 / 缩放与画质
+        // 显示：外观 / 缩放与图片
         displayGroups = listOf(
             SettingGroup(R.string.setting_group_appearance, listOf(
                 stored(KEY_THEME, R.string.theme, "黑色"),
@@ -299,17 +301,19 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             ))
         )
 
-        // 播放：默认参数 / 播放行为（同维度相邻：画质↔无缝切换、音质↔音量均衡、倍速↔音乐区倍速）
+        // 播放：画质与解码 / 音质与倍速 / 播放行为
         playerGroups = listOf(
-            SettingGroup(R.string.setting_group_play_defaults, listOf(
+            SettingGroup(R.string.setting_group_quality, listOf(
                 stored(KEY_DEFAULT_VIDEO_QUALITY, R.string.default_video_quality, "1080P"),
                 stored(KEY_SEAMLESS_QUALITY_SWITCH, R.string.seamless_quality_switch, "开"),
+                stored(KEY_VIDEO_CODEC, R.string.video_codec, VideoCodecSupport.defaultPreferredCodec(requireContext()).name),
+                stored(KEY_SOFTWARE_VIDEO_DECODER, R.string.software_video_decoder, "关")
+            )),
+            SettingGroup(R.string.setting_group_audio, listOf(
                 stored(KEY_DEFAULT_AUDIO_TRACK, R.string.default_audio_track, "192kbps"),
                 stored(KEY_AUDIO_BALANCE, R.string.audio_balance, "中"),
                 stored(KEY_DEFAULT_PLAY_SPEED, R.string.default_play_speed, "1.0"),
-                stored(KEY_MUSIC_ZONE_NORMAL_SPEED, R.string.music_zone_normal_speed, "关"),
-                stored(KEY_VIDEO_CODEC, R.string.video_codec, VideoCodecSupport.defaultPreferredCodec(requireContext()).name),
-                stored(KEY_SOFTWARE_VIDEO_DECODER, R.string.software_video_decoder, "关")
+                stored(KEY_MUSIC_ZONE_NORMAL_SPEED, R.string.music_zone_normal_speed, "关")
             )),
             SettingGroup(R.string.setting_group_play_behavior, listOf(
                 stored(KEY_RESUME_PLAYBACK, R.string.resume_playback, "开"),
@@ -319,20 +323,22 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             ))
         )
 
-        // 播放界面：字幕 / 控制栏显示
+        // 播放界面：字幕 / 进度与信息 / 控制栏按钮
         playerUiGroups = listOf(
             SettingGroup(R.string.setting_group_subtitle, listOf(
                 stored(KEY_SUBTITLE_DEFAULT_MODE, R.string.show_subtitle_default, "自动字幕"),
                 stored(KEY_SUBTITLE_TEXT_SIZE, R.string.subtitle_text_size, "45")
             )),
-            SettingGroup(R.string.setting_group_controls, listOf(
+            SettingGroup(R.string.setting_group_progress, listOf(
                 stored(KEY_SHOW_BOTTOM_PROGRESS_BAR, R.string.show_bottom_progress_bar, "关"),
+                stored(KEY_SHOW_CHAPTER_BAR, R.string.show_chapter_bar, "关"),
                 stored(KEY_SHOW_ONLINE_WATCHING, R.string.show_online_watching, "开"),
-                stored(KEY_SHOW_LIVE_SUPER_CHAT, R.string.show_live_super_chat, "开"),
+                stored(KEY_SHOW_LIVE_SUPER_CHAT, R.string.show_live_super_chat, "开")
+            )),
+            SettingGroup(R.string.setting_group_controls, listOf(
                 stored(KEY_SHOW_NEXT_PREVIOUS, R.string.show_next_previous, "关"),
                 stored(KEY_SHOW_PLAY_SPEED_BUTTON, R.string.show_play_speed_button, "关"),
-                stored(KEY_SHOW_PLAYBACK_RATE, R.string.show_playback_rate, "关"),
-                stored(KEY_SHOW_CHAPTER_BAR, R.string.show_chapter_bar, "关")
+                stored(KEY_SHOW_PLAYBACK_RATE, R.string.show_playback_rate, "关")
             ))
         )
 
@@ -374,16 +380,14 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             ))
         )
 
-        // 关于：应用 / 组件 / 诊断 / 设备信息
+        // 关于：应用 / 组件与诊断 / 设备信息
         aboutGroups = listOf(
             SettingGroup(R.string.setting_group_about_app, listOf(
                 plain(KEY_APP_VERSION, R.string.app_version, BuildConfig.VERSION_NAME),
                 plain(KEY_CHECK_UPDATE, R.string.check_update, getString(R.string.update_click_to_check))
             )),
-            SettingGroup(R.string.setting_group_components, listOf(
-                plain(KEY_X5_CORE, R.string.x5_core_replace, getString(R.string.x5_status_not_installed))
-            )),
             SettingGroup(R.string.setting_group_diagnostics, listOf(
+                plain(KEY_X5_CORE, R.string.x5_core_replace, getString(R.string.x5_status_not_installed)),
                 plain(KEY_LOG_RECORD, R.string.log_record, getString(if (AppLog.isEnabled) R.string.on else R.string.off)),
                 plain(KEY_LAN_LOG, R.string.lan_log)
             )),

@@ -35,15 +35,18 @@
     <string name="player_ui_setting">Player UI</string>
     <string name="about_setting">About</string>
     <!-- 设置分组标题 -->
-    <string name="setting_group_browse">Browsing</string>
+    <string name="setting_group_browse">Browsing &amp; Entries</string>
+    <string name="setting_group_interact">Interaction</string>
     <string name="setting_group_network">Network &amp; Account</string>
     <string name="setting_group_storage">Storage</string>
     <string name="setting_group_appearance">Appearance</string>
-    <string name="setting_group_scale">Scale &amp; Quality</string>
-    <string name="setting_group_play_defaults">Defaults</string>
+    <string name="setting_group_scale">Scale &amp; Images</string>
+    <string name="setting_group_quality">Quality &amp; Decoding</string>
+    <string name="setting_group_audio">Audio &amp; Speed</string>
     <string name="setting_group_play_behavior">Behavior</string>
     <string name="setting_group_subtitle">Subtitles</string>
-    <string name="setting_group_controls">Controls</string>
+    <string name="setting_group_progress">Progress &amp; Info</string>
+    <string name="setting_group_controls">Control Buttons</string>
     <string name="setting_group_dm_switch">Switch</string>
     <string name="setting_group_dm_style">Style</string>
     <string name="setting_group_dm_area">Screen Area</string>
@@ -51,8 +54,7 @@
     <string name="setting_group_teen_time">Time Limits</string>
     <string name="setting_group_teen_psas">PSA</string>
     <string name="setting_group_about_app">App</string>
-    <string name="setting_group_components">Components</string>
-    <string name="setting_group_diagnostics">Diagnostics</string>
+    <string name="setting_group_diagnostics">Components &amp; Diagnostics</string>
     <string name="confirm">Confirm</string>
     <string name="confirm_countdown">Confirm (%d)</string>
     <string name="continue_watch">Continue watching</string>

@@ -37,6 +37,8 @@ import com.mytvb.core.ui.base.BaseActivity
 import com.mytvb.core.ui.system.ViewUtils
 import com.mytvb.feature.cctv.CctvChannel
 import com.mytvb.feature.cctv.CctvChannels
+import com.mytvb.feature.cctv.CctvLiveQuality
+import com.mytvb.feature.cctv.CctvLiveQualityHook
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,8 +63,8 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
     private var playbackTimeoutSession = -1
     private var probeExtends = 0
     private var playbackStartMs = 0L
-    private var preferredQuality = CctvQuality.P1080
-    private var selectedQuality = CctvQuality.P1080
+    private var preferredQuality = CctvLiveQuality.P1080
+    private var selectedQuality = CctvLiveQuality.P1080
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     /** 播放UI隐藏时连按两次 BACK 退出的计时锚点：上一次 BACK 的时间戳，0 表示连击未开始。 */
@@ -270,12 +272,12 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
         val baseUrl = "https://tv.cctv.com/live/${channel.id}/m/"
         AppLog.i(
             TAG,
-            "webLoad ${channel.title} channelId=${channel.id} quality=${selectedQuality.label} br=${selectedQuality.br} baseUrl=$baseUrl scripts=$scriptSource count=${scriptUrls.size}"
+            "webLoad ${channel.title} channelId=${channel.id} quality=${selectedQuality.label} b=${selectedQuality.bRange} baseUrl=$baseUrl scripts=$scriptSource count=${scriptUrls.size}"
         )
         logPlaybackStage(
             session,
             "load_html",
-            "quality=${selectedQuality.label} br=${selectedQuality.br} scripts=$scriptSource count=${scriptUrls.size}"
+            "quality=${selectedQuality.label} b=${selectedQuality.bRange} scripts=$scriptSource count=${scriptUrls.size}"
         )
         binding.webPlayer.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
         schedulePlaybackTimeout(session)
@@ -293,7 +295,7 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
 
     private fun showQualityDialog() {
         showController()
-        val qualities = CctvQuality.values()
+        val qualities = CctvLiveQuality.entries
         val labels = qualities.map { it.label }
         val checkedIndex = qualities.indexOf(preferredQuality).coerceAtLeast(0)
         ChoiceDialog.show(
@@ -409,7 +411,7 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
     }
 
     private fun initialPlaybackTimeoutMs(): Long =
-        if (selectedQuality == CctvQuality.P1080) PLAYBACK_TIMEOUT_1080_MS else PLAYBACK_TIMEOUT_MS
+        if (selectedQuality == CctvLiveQuality.P1080) PLAYBACK_TIMEOUT_1080_MS else PLAYBACK_TIMEOUT_MS
 
     private fun probePlaybackBuffer(session: Int) {
         binding.webPlayer.evaluateJavascript(BUFFER_PROBE_SCRIPT) { result ->
@@ -468,8 +470,8 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
             DEFAULT_SCRIPT_URLS
         }
         val scriptSource = if (usingDynamicScripts) "quality-fallback-official" else "quality-fallback"
-        AppLog.w(TAG, "qualityFallback reason=$reason next=${nextQuality.label} br=${nextQuality.br}")
-        logPlaybackStage(session, "quality_fallback", "reason=$reason next=${nextQuality.label} br=${nextQuality.br}")
+        AppLog.w(TAG, "qualityFallback reason=$reason next=${nextQuality.label} b=${nextQuality.bRange}")
+        logPlaybackStage(session, "quality_fallback", "reason=$reason next=${nextQuality.label} b=${nextQuality.bRange}")
         loadChannelHtml(channel, scriptUrls, session, scriptSource)
         return true
     }
@@ -772,7 +774,8 @@ class CctvPlayerActivity : BaseActivity<ActivityCctvPlayerBinding>() {
                     return@post
                 }
                 handler.removeCallbacks(playbackTimeoutRunnable)
-                logPlaybackStage(playbackSession, "video_playable", state.take(160))
+                // take(400)：src 是 JSON 末尾字段且 URL 较长，截太短会把流地址切掉
+                logPlaybackStage(playbackSession, "video_playable", state.take(400))
                 binding.progressBar.visibility = View.GONE
                 binding.textError.visibility = View.GONE
             }
@@ -839,6 +842,7 @@ $scriptTags
             <body>
               <div id="player"></div>
               <script>
+                ${CctvLiveQualityHook.script(selectedQuality.bRange)}
                 (function() {
                   var channel = '$safeId';
                   function size() {
@@ -891,7 +895,7 @@ $scriptTags
                       t: channel,
                       isAutoPlay: 'true',
                       ruleVisible: 'false',
-                      br: '${selectedQuality.br.escapeJsString()}',
+                      br: '',
                       posterImg: '',
                       isLive4k: 'false',
                       isHttps: 'true',
@@ -903,7 +907,7 @@ $scriptTags
                       jumpToApp: 'false',
                       others: ''
                     };
-                    console.log('mybili cctv createLivePlayer ' + channel + ' ' + s.w + 'x' + s.h);
+                    console.log('mybili cctv createLivePlayer ' + channel + ' ' + s.w + 'x' + s.h + ' target=${selectedQuality.label}');
                     createLivePlayer(playerParas);
                     setInterval(fitAndPlay, 1000);
                     setTimeout(fitAndPlay, 300);
@@ -921,10 +925,6 @@ $scriptTags
 
     private fun String.escapeHtmlAttribute(): String {
         return replace("&", "&amp;").replace("\"", "&quot;")
-    }
-
-    private fun String.escapeJsString(): String {
-        return replace("\\", "\\\\").replace("'", "\\'")
     }
 
     private fun logPlaybackStage(session: Int, stage: String, detail: String = "") {
@@ -1062,20 +1062,5 @@ $scriptTags
                 }
             })();
         """.trimIndent()
-    }
-
-    private enum class CctvQuality(
-        val label: String,
-        val br: String
-    ) {
-        P1080("1080P", "1080"),
-        P720("720P", "720"),
-        P540("540P", "540"),
-        P360("360P", "360");
-
-        fun nextLower(): CctvQuality? {
-            val qualities = values()
-            return qualities.getOrNull(qualities.indexOf(this) + 1)
-        }
     }
 }

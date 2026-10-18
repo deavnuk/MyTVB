@@ -182,11 +182,22 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
     private fun onLoginSuccess() {
         FileCacheManager.clearUserCaches()
         viewLifecycleOwner.lifecycleScope.launch {
-            runCatching { NetworkManager.activateAfterLogin() }
-            // refreshCurrentUserInfo → syncUserSession 检测到"无会话→有会话"跳变时会在
-            // NetworkManager 内部统一广播 UserSessionChanged，此处不再手动 dispatch
-            userRepository.refreshCurrentUserInfo()
-            parentFragmentManager.popBackStackImmediate()
+            try {
+                runCatching { NetworkManager.activateAfterLogin() }
+                // refreshCurrentUserInfo → syncUserSession 检测到"无会话→有会话"跳变时会在
+                // NetworkManager 内部统一广播 UserSessionChanged，此处不再手动 dispatch
+                userRepository.refreshCurrentUserInfo()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 登录链路自身会推进会话代际（activateAfterLogin invalidate / nav Set-Cookie），
+                // refreshCurrentUserInfo 的 requireCurrent 判过期抛 StaleSessionException（属取消），
+                // 被 launch 静默吞掉后 popBackStack 永不执行——扫码页卡住的回归点。cookie 已落地，
+                // 用户信息由会话健康检查兜底，页面照常关闭。
+                AppLog.w("SignInFragment", "post-login refresh cancelled (stale session expected): ${e.message}")
+                throw e
+            } finally {
+                // 无论用户信息刷新成败，扫码页都必须关闭；用户已按 BACK 退出时不重复 pop
+                if (isAdded) parentFragmentManager.popBackStackImmediate()
+            }
         }
     }
 

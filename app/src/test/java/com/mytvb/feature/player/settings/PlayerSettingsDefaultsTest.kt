@@ -1,12 +1,12 @@
 package com.mytvb.feature.player.settings
 
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerSettingsDefaultsTest {
 
     @Test
-    fun sponsorBlockIsOffByDefault() {
-        assertFalse(PlayerSettings().sponsorBlockEnabled)
+    fun sponsorBlockIsOnByDefault() {
+        assertTrue(PlayerSettings().sponsorBlockEnabled)
     }
 }

@@ -52,7 +52,7 @@ data class PlayerSettings(
     val musicZoneNormalSpeed: Boolean = false,
     val fastSeekSeconds: Int = 10,
     val resumePlayback: Boolean = true,
-    val sponsorBlockEnabled: Boolean = false,
+    val sponsorBlockEnabled: Boolean = true,
     val sponsorBlockAutoSkip: Boolean = true,
     // 音量均衡：PCM 级自适应响度归一（VolumeBalanceAudioProcessor），关/低/中/高四档。
     // 取代旧的系统音效方案（DynamicsProcessing/LoudnessEnhancer——部分 TV 设备驱动有 bug 会失真）。默认中档。
@@ -261,7 +261,7 @@ object PlayerSettingsStore {
             ),
             sponsorBlockEnabled = parseToggle(
                 readSetting(KEY_SPONSOR_BLOCK_ENABLED),
-                defaultValue = false
+                defaultValue = true
             ),
             sponsorBlockAutoSkip = parseToggle(
                 readSetting(KEY_SPONSOR_BLOCK_AUTO_SKIP),

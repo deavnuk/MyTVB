@@ -27,10 +27,14 @@ class SponsorBlockUseCase {
     var lastError: String? = null
         private set
 
-    suspend fun loadSegments(bvid: String, cid: Long) {
+    suspend fun loadSegments(
+        bvid: String,
+        cid: Long,
+        categories: List<String> = SponsorSegment.ALL_CATEGORIES
+    ) {
         reset()
         try {
-            val result = SponsorBlockRepository.getSegments(bvid, cid)
+            val result = SponsorBlockRepository.getSegments(bvid, cid, categories)
             segments = result.segments
             lastError = result.error
             nextSegmentIndex = 0

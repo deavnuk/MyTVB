@@ -70,6 +70,7 @@
     <string name="setting_group_quality">画质与解码</string>
     <string name="setting_group_audio">音质与倍速</string>
     <string name="setting_group_play_behavior">播放行为</string>
+    <string name="setting_group_sponsor_skip">空降助手（跳过类型）</string>
     <string name="setting_group_subtitle">字幕</string>
     <string name="setting_group_progress">进度与信息</string>
     <string name="setting_group_controls">控制栏按钮</string>

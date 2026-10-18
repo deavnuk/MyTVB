@@ -53,6 +53,7 @@ import com.mytvb.feature.player.cache.PlayerMediaCache
 import com.mytvb.feature.player.settings.AudioBalanceSettings
 import com.mytvb.feature.player.speed.PlaybackSpeedPolicy
 import com.mytvb.feature.player.sponsor.SponsorBlockRepository
+import com.mytvb.feature.player.sponsor.SponsorCategoryPrefs
 import com.mytvb.feature.player.view.MyPlayerSettingView
 import com.mytvb.core.common.ext.normalizeDanmakuSmartFilterValue
 import com.mytvb.core.common.ext.localizedSettingLabel
@@ -320,8 +321,14 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             SettingGroup(R.string.setting_group_play_behavior, listOf(
                 stored(KEY_RESUME_PLAYBACK, R.string.resume_playback, "开"),
                 stored(KEY_AFTER_PLAY, R.string.after_play, "播推荐视频"),
-                stored(KEY_PLAY_FINISH_EXIT_PLAYER, R.string.play_finish_exit_player, "开"),
-                stored(KEY_SPONSOR_BLOCK_ENABLED, R.string.sponsor_block, "关")
+                stored(KEY_PLAY_FINISH_EXIT_PLAYER, R.string.play_finish_exit_player, "开")
+            )),
+            // 空降助手：总开关 + 逐类跳过开关（默认总开关开，跳过类型只开赞助/恰饭，其余默认关）
+            SettingGroup(R.string.setting_group_sponsor_skip, listOf(
+                stored(KEY_SPONSOR_BLOCK_ENABLED, R.string.sponsor_block, "开"),
+                *SponsorCategoryPrefs.OPTIONS.map { option ->
+                    stored(option.key, option.titleRes, SponsorCategoryPrefs.defaultStored(option))
+                }.toTypedArray()
             ))
         )
 
@@ -650,6 +657,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             KEY_AFTER_PLAY -> showPlayerChoiceDialog(key, arrayOf("什么都不做", "播推荐视频", "播列表中的下一个", "播放合集中的下一个"))
             KEY_PLAY_FINISH_EXIT_PLAYER -> toggle(key)
             KEY_SPONSOR_BLOCK_ENABLED -> toggleSponsorBlock()
+            in SponsorCategoryPrefs.KEYS -> toggle(key)
             // —— 播放界面·字幕 ——
             KEY_SUBTITLE_DEFAULT_MODE -> showPlayerChoiceDialog(key, arrayOf("关闭字幕", "开启字幕", "自动字幕"))
             KEY_SUBTITLE_TEXT_SIZE -> showPlayerChoiceDialog(key, arrayOf("35", "40", "45", "50", "55", "60"))
@@ -1145,6 +1153,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         applyStored(KEY_AFTER_PLAY)
         applyStored(KEY_PLAY_FINISH_EXIT_PLAYER)
         applyStored(KEY_SPONSOR_BLOCK_ENABLED)
+        SponsorCategoryPrefs.OPTIONS.forEach { applyStored(it.key) }
 
         // —— 播放界面 ——
         // 字幕设置项：读新 key（subtitle_default_mode），未选过时默认显示"自动字幕"

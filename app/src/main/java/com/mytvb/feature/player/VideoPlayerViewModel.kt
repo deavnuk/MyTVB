@@ -72,6 +72,7 @@ import com.mytvb.feature.player.progress.PlaybackProgressStore
 import com.mytvb.feature.player.progress.PlaybackResumePositionPolicy
 import com.mytvb.feature.player.sponsor.AvToBv
 import com.mytvb.feature.player.sponsor.SponsorBlockUseCase
+import com.mytvb.feature.player.sponsor.SponsorCategoryPrefs
 import com.mytvb.feature.player.sponsor.SponsorSegment
 import com.mytvb.feature.player.sponsor.SponsorSkipTargetPolicy
 
@@ -3060,7 +3061,17 @@ class VideoPlayerViewModel(
                 step = "sponsor_load_started",
                 message = "cid=$targetCid bvid=$bvid"
             )
-            sponsorBlockUseCase.loadSegments(bvid, targetCid)
+            // 跳过类型由用户逐类勾选（设置·空降助手）。全部关闭时不请求，避免空 category
+            // 被服务端理解为「全部类别」。
+            val sponsorCategories = SponsorCategoryPrefs.selectedCategories { key ->
+                appSettings.getCachedString(key)
+            }
+            if (sponsorCategories.isEmpty()) {
+                _sponsorSegments.value = emptyList()
+                AppLog.d(TAG, "sponsor load skipped: 所有跳过类型均已关闭")
+                return@launch
+            }
+            sponsorBlockUseCase.loadSegments(bvid, targetCid, sponsorCategories)
             if (!isActiveVideoLoad(generation) || currentCid != targetCid) {
                 return@launch
             }

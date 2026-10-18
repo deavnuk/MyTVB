@@ -26,11 +26,13 @@ class TabBarView @JvmOverloads constructor(
     private val buttonDynamic: AppCompatImageView
     private val buttonLive: AppCompatImageView
     private val buttonCctvLive: AppCompatImageView
+    private val buttonCctvVod: AppCompatImageView
     private val buttonMe: AppCompatImageView
     private val buttonSetting: AppCompatImageView
     private val imageAvatar: AvatarBadgeView
 
     private val tabButtons = mutableListOf<AppCompatImageView>()
+    private val searchIndex: Int get() = tabButtons.indexOf(buttonSearch)
     private var currentSelectedIndex = -1
     private var onTabClickListener: OnTabClickListener? = null
 
@@ -45,6 +47,7 @@ class TabBarView @JvmOverloads constructor(
         buttonDynamic = view.findViewById(R.id.button_dynamic)
         buttonLive = view.findViewById(R.id.button_live)
         buttonCctvLive = view.findViewById(R.id.button_cctv_live)
+        buttonCctvVod = view.findViewById(R.id.button_cctv_vod)
         buttonMe = view.findViewById(R.id.button_me)
         buttonSetting = view.findViewById(R.id.button_setting)
         imageAvatar = view.findViewById(R.id.image_avatar)
@@ -63,6 +66,7 @@ class TabBarView @JvmOverloads constructor(
             buttonDynamic,
             buttonLive,
             buttonCctvLive,
+            buttonCctvVod,
             buttonMe,
             buttonSearch
         ))
@@ -148,8 +152,9 @@ class TabBarView @JvmOverloads constructor(
         if (index == 1 && buttonCategory.visibility == GONE) return
         if (index == 3 && buttonLive.visibility == GONE) return
         if (index == 4 && buttonCctvLive.visibility == GONE) return
+        if (index == 5 && buttonCctvVod.visibility == GONE) return
         if (currentSelectedIndex == index) {
-            if (index == 6) {
+            if (index == searchIndex) {
                 onTabClickListener?.onSearchClick()
             } else {
                 onTabClickListener?.onTabReselected(index)
@@ -161,7 +166,7 @@ class TabBarView @JvmOverloads constructor(
         currentSelectedIndex = index
         applyTabColor(tabButtons[currentSelectedIndex], true)
 
-        if (index == 6) {
+        if (index == searchIndex) {
             onTabClickListener?.onSearchClick()
         } else {
             onTabClickListener?.onTabSelected(index)
@@ -186,6 +191,14 @@ class TabBarView @JvmOverloads constructor(
 
     fun isCctvLiveButtonVisible(): Boolean {
         return buttonCctvLive.visibility == VISIBLE
+    }
+
+    fun setCctvVodButtonVisible(visible: Boolean) {
+        buttonCctvVod.visibility = if (visible) VISIBLE else GONE
+    }
+
+    fun isCctvVodButtonVisible(): Boolean {
+        return buttonCctvVod.visibility == VISIBLE
     }
 
     fun setCategoryButtonVisible(visible: Boolean) {
@@ -243,6 +256,7 @@ class TabBarView @JvmOverloads constructor(
             add(buttonDynamic)
             add(buttonLive)
             add(buttonCctvLive)
+            add(buttonCctvVod)
             add(buttonMe)
             add(imageAvatar)
             add(buttonSetting)

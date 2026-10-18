@@ -95,6 +95,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         private const val KEY_THEME = "theme"
         private const val KEY_LIVE_ENTRY = "live_entry"
         private const val KEY_CCTV_LIVE_ENTRY = "cctv_live_entry"
+        private const val KEY_CCTV_VOD_ENTRY = "cctv_vod_entry"
         private const val KEY_MINOR_PROTECTION = "minor_protection"
         private const val KEY_WATCH_TIME_LIMIT = "teen_watch_limit_min"
         private const val KEY_REST_TIME_LIMIT = "teen_rest_limit_min"
@@ -269,7 +270,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
                 stored(KEY_HOME_FEED_SOURCE, R.string.home_feed_source, FeedSourceSetting.DEFAULT),
                 stored(KEY_HOT_FEED_SOURCE, R.string.hot_feed_source, FeedSourceSetting.DEFAULT),
                 stored(KEY_LIVE_ENTRY, R.string.live_entry, "关"),
-                stored(KEY_CCTV_LIVE_ENTRY, R.string.cctv_live, "关")
+                stored(KEY_CCTV_LIVE_ENTRY, R.string.cctv_live, "关"),
+                stored(KEY_CCTV_VOD_ENTRY, R.string.cctv_vod, "关")
             )),
             SettingGroup(R.string.setting_group_interact, listOf(
                 stored(KEY_SHOW_VIDEO_DETAIL, R.string.show_video_detail_page, "关"),
@@ -608,6 +610,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
             KEY_CCTV_LIVE_ENTRY -> toggle(key) {
                 appSettings.putStringAsync(key, it)
                 (activity as? MainActivity)?.applyCctvLiveEntryVisibility()
+            }
+            KEY_CCTV_VOD_ENTRY -> toggle(key) {
+                appSettings.putStringAsync(key, it)
+                (activity as? MainActivity)?.applyCctvVodEntryVisibility()
             }
             KEY_SHOW_VIDEO_DETAIL -> toggle(key)
             KEY_DOUYIN_MODE -> toggle(key)

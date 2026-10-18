@@ -83,6 +83,15 @@
             android:theme="@style/Theme.MyBLBL"
             tools:ignore="DiscouragedApi" />
 
+        <!-- CCTV 影视（央视片库点播，WebView 承载官方页面播放器 + 自研控制条） -->
+        <activity
+            android:name=".ui.activity.CctvVodPlayerActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="screenSize|orientation|keyboardHidden"
+            android:theme="@style/Theme.MyBLBL"
+            tools:ignore="DiscouragedApi" />
+
         <!-- TV 直播（Marmot 引擎，WebView + tv-web 脚本） -->
         <activity
             android:name=".ui.activity.MarmotLiveActivity"

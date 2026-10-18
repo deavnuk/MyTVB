@@ -752,6 +752,10 @@ class MyPlayerView @JvmOverloads constructor(
         target.setSponsorDuration(pendingSponsorDurationMs)
         target.setViewPointSegments(pendingViewPointSegments)
         target.setViewPointDuration(pendingViewPointDurationMs)
+        // 控制栏弹幕图标初值必须跟随设置项。MyPlayerControlView.dmEnabled 的类默认是 true，
+        // 若设置里弹幕为「关」，图标会显示成「开」且内部布尔与设置错位，导致要「关→再开」
+        // 两次才真正打开弹幕（第一次只是把错位的局部状态对齐）。此处按设置面板的真实值初始化。
+        target.dmEnableButtonChange(settingView?.getDmEnable() ?: true)
     }
 
     private fun setupSettingView() {
@@ -3584,6 +3588,9 @@ class MyPlayerView @JvmOverloads constructor(
 
     private fun syncDanmakuSettings() {
         val snapshot = buildDanmakuSettingsSnapshot()
+        // 弹幕数据/设置每次落地时把控制栏图标对齐到真实开关值，兜住控制器晚于设置面板
+        // 创建的路径（见 applyPendingControllerState 的双保险）。
+        controller?.dmEnableButtonChange(snapshot.enabled)
         dmMaskController.setDanmakuVisible(snapshot.enabled)
         updateVideoFrameRateStrategy(snapshot.enabled)
         activeDanmakuController()?.applySettings(snapshot)

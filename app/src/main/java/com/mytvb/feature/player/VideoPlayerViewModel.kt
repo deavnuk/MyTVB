@@ -1657,7 +1657,7 @@ class VideoPlayerViewModel(
         }
     }
 
-    fun reportPlaybackHeartbeat(playType: Int = 0, force: Boolean = false) {
+    fun reportPlaybackHeartbeat(playType: Int = 0, force: Boolean = false, videoEnded: Boolean = false) {
         // 进度归属校验：VM 会话身份与 player 实际挂载源不一致（复用实例换源窗口、
         // 切集瞬间）时，position 属于别的视频，上报会把假进度写进服务端观看历史，
         // 之后这个视频在任何端都会带着错误进度续播。
@@ -1669,7 +1669,16 @@ class VideoPlayerViewModel(
             return
         }
         saveLocalPlaybackProgress()
-        heartbeatReporter.reportPlaybackHeartbeat(playType, force)
+        // 连播/切集前的收尾补发：此时旧视频的 position 已停在总时长（已播完），若不按「播完」
+        // 上报，会用真实进度覆盖掉 STATE_ENDED 刚写入的 -1 哨兵，官方历史记录又变回「差一秒」。
+        val ended = videoEnded || (force && isAtPlaybackEnd())
+        heartbeatReporter.reportPlaybackHeartbeat(playType, force, ended)
+    }
+
+    /** 当前播放位置是否已到总时长尾声（与心跳钉满阈值一致）。 */
+    private fun isAtPlaybackEnd(): Boolean {
+        val totalMs = maxOf(_duration.value, currentPlayInfo?.timeLength ?: 0L)
+        return totalMs > 0L && _currentPosition.value >= totalMs - 500L
     }
 
     /**

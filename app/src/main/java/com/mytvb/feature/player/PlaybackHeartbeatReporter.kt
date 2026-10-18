@@ -68,22 +68,32 @@ internal class PlaybackHeartbeatReporter(
      *  1. 绕过同秒去重，保证最后一条必达；
      *  2. UGC 额外走 [reportHistoryDirect]（x/v2/history/report 直写官方历史进度，
      *     与官方 App 同通道），双通道对齐 blbl 的收尾上报。
+     * @param videoEnded 视频自然播放到结尾（STATE_ENDED）时传 true：把 played_time 上报为
+     *  -1。B 站官方约定「played_time 播放完成为 -1」（见 bilibili-API-collect
+     *  docs/video/report.md），官方端据此把该稿件标记为「已看完」。仅把进度钉到时长
+     *  （见下方 durationSec）并不足以触发该标记——这正是此前「差最后一秒、不显示已看完」
+     *  的根因。仅 STATE_ENDED 传 true；切集/退出不算看完，仍上报真实进度。
      */
-    fun reportPlaybackHeartbeat(playType: Int = 0, force: Boolean = false) {
+    fun reportPlaybackHeartbeat(playType: Int = 0, force: Boolean = false, videoEnded: Boolean = false) {
         val aid = context.currentAid
         val cid = context.currentCid
         var positionMs = context.currentPositionMs.coerceAtLeast(0L)
         if (positionMs <= 0L) {
             positionMs = context.pendingSeekPositionMs.coerceAtLeast(0L)
         }
-        // 已播到播放器时长尾声（END/退出场景 currentPosition==duration）：以服务端时长
-        // （playInfo.timeLength）封顶取大。DASH manifest 时长可能比官方标称短半秒，
-        // 不封顶时 floor 后停在 duration-1 秒，官方端不算"看完"。
+        // 播完（ENDED）或已播到总时长尾声时，把进度钉到「总时长」——取播放器时长与 API
+        // 标称时长的较大者：DASH 清单常比官方标称短半秒~1 秒，只用播放器时长做阈值与封顶时，
+        // floor 后会停在 duration-1，官方历史记录显示「差一秒」（如 10:35/10:36）。
         val playerDurationMs = context.durationMs
-        if (playerDurationMs > 0L && positionMs >= playerDurationMs - 500L) {
-            positionMs = max(positionMs, context.playInfoDurationMs)
+        val apiDurationMs = context.playInfoDurationMs
+        val totalDurationMs = max(playerDurationMs, apiDurationMs)
+        if (totalDurationMs > 0L && (videoEnded || positionMs >= totalDurationMs - 500L)) {
+            positionMs = max(positionMs, totalDurationMs)
         }
         val positionSec = positionMs / 1000L
+        // B 站约定 played_time==-1 表示已播放完成。播完（STATE_ENDED）发 -1 哨兵，
+        // 官方端据此把稿件标记为「已看完」；其余时机发真实进度秒数。
+        val reportedPlayedTimeSec = if (videoEnded) -1L else positionSec
         val csrf = sessionGateway.getCsrfToken()
         if (aid == null || aid <= 0L) {
             return
@@ -103,6 +113,15 @@ internal class PlaybackHeartbeatReporter(
         val realtimeSec = ((System.currentTimeMillis() / 1000L) - startTimestampSec).coerceAtLeast(0L)
         val durationSec = ((context.durationMs.takeIf { it > 0L } ?: context.playInfoDurationMs) / 1000L)
             .coerceAtLeast(positionSec)
+        if (force) {
+            // 收尾补发打点（ENDED / 切集 / 退出 / 连播预上报）：核对是否按「播完」上报 -1、
+            // 进度是否钉到总时长，用于排查官方端「差一秒 / 不显示已看完」。
+            AppLog.i(
+                TAG,
+                "heartbeat_force aid=$aid cid=$cid ended=$videoEnded posMs=$positionMs posSec=$positionSec " +
+                    "playerDurMs=$playerDurationMs apiDurMs=$apiDurationMs durSec=$durationSec playedTime=$reportedPlayedTimeSec"
+            )
+        }
         val userInfo = sessionGateway.getUserInfo()
         val mid = userInfo?.mid?.takeIf { it > 0L }
         val quality = context.qualityId
@@ -139,14 +158,14 @@ internal class PlaybackHeartbeatReporter(
                 )
 
                 if (force && !isPgc) {
-                    reportHistoryDirect(aid = aid, cid = cid, progressSec = positionSec, csrf = csrf)
+                    reportHistoryDirect(aid = aid, cid = cid, progressSec = reportedPlayedTimeSec, csrf = csrf)
                 }
 
                 val params = linkedMapOf(
                     "start_ts" to startTimestampSec.toString(),
                     "aid" to aid.toString(),
                     "cid" to cid.toString(),
-                    "played_time" to positionSec.toString(),
+                    "played_time" to reportedPlayedTimeSec.toString(),
                     "realtime" to realtimeSec.toString(),
                     "real_played_time" to positionSec.toString(),
                     "type" to if (isPgc) "4" else "3",
@@ -184,7 +203,8 @@ internal class PlaybackHeartbeatReporter(
                     mid = mid,
                     startTimestampSec = startTimestampSec,
                     realtimeSec = realtimeSec,
-                    playedSec = positionSec,
+                    playedTimeSec = reportedPlayedTimeSec,
+                    progressSec = positionSec,
                     durationSec = durationSec
                 )
                 var attempt = 0
@@ -304,7 +324,8 @@ internal class PlaybackHeartbeatReporter(
         mid: Long?,
         startTimestampSec: Long,
         realtimeSec: Long,
-        playedSec: Long,
+        playedTimeSec: Long,
+        progressSec: Long,
         durationSec: Long
     ): Map<String, String> {
         if (sessionGateway.areWbiKeysStale()) {
@@ -317,10 +338,10 @@ internal class PlaybackHeartbeatReporter(
             "w_aid" to aid.toString(),
             "w_dt" to "2",
             "w_realtime" to realtimeSec.toString(),
-            "w_played_time" to playedSec.toString(),
-            "w_real_played_time" to playedSec.toString(),
+            "w_played_time" to playedTimeSec.toString(),
+            "w_real_played_time" to progressSec.toString(),
             "w_video_duration" to durationSec.toString(),
-            "w_last_play_progress_time" to playedSec.toString(),
+            "w_last_play_progress_time" to progressSec.toString(),
             "web_location" to WEB_LOCATION_PLAYER
         )
         mid?.let { params["w_mid"] = it.toString() }

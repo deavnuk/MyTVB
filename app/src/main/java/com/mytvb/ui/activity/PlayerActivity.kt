@@ -559,7 +559,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     playerView.stopDanmaku()
                     // 播完瞬间强制补发收尾心跳+直写历史（对齐 blbl），需覆盖下方提前 return 的路径。
                     progressCoordinator.syncNow()
-                    viewModel.reportPlaybackHeartbeat(force = true)
+                    viewModel.reportPlaybackHeartbeat(force = true, videoEnded = true)
                     // 公益广告锁死模式：播完唯一出口，先停播放器再退出，避免被 repeatMode/连播逻辑重新触发
                     if (psasLocked) {
                         player?.repeatMode = Player.REPEAT_MODE_OFF

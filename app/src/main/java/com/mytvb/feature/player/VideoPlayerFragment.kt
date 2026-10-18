@@ -415,7 +415,7 @@ class VideoPlayerFragment : Fragment() {
                     // 播完瞬间强制补发收尾心跳+直写历史（对齐 blbl）：
                     // 心跳循环随 isPlaying=false 已停，不补发的话最后一条停在结束前。
                     progressCoordinator.syncNow()
-                    viewModel.reportPlaybackHeartbeat(force = true)
+                    viewModel.reportPlaybackHeartbeat(force = true, videoEnded = true)
                     handlePlaybackEnded()
                 }
                 Player.STATE_IDLE -> {

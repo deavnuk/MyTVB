@@ -125,9 +125,15 @@ class SettingAdapter(
                 if (position == RecyclerView.NO_POSITION) {
                     return@setOnFocusChangeListener
                 }
+                val row = currentList.getOrNull(position)
                 if (hasFocus) {
                     val oldFocused = focusedPosition
                     focusedPosition = position
+                    // 同步应用焦点样式：只走 notifyItemChanged 会晚一帧重绑，
+                    // 这一帧里会先画出复用 view 残留的按下态（亮紫方块）
+                    if (row is SettingRow.Item) {
+                        bindFocusState(true, row.slot)
+                    }
                     if (oldFocused != RecyclerView.NO_POSITION && oldFocused != position) {
                         notifyItemChanged(oldFocused, PAYLOAD_FOCUS)
                     }
@@ -136,6 +142,9 @@ class SettingAdapter(
                 }
                 if (focusedPosition == position) {
                     focusedPosition = RecyclerView.NO_POSITION
+                    if (row is SettingRow.Item) {
+                        bindFocusState(false, row.slot)
+                    }
                     notifyItemChanged(position, PAYLOAD_FOCUS)
                 }
             }
@@ -146,12 +155,24 @@ class SettingAdapter(
             bindFocusState(bindingAdapterPosition == focusedPosition, row.slot)
         }
 
+        /**
+         * 清掉 view 复用/焦点转移时残留的暂态：item 被触摸滑动或按下后，
+         * pressed 等状态会跟着被回收的 view 带到新位置，压过焦点背景的 focused 样式。
+         */
+        private fun clearTransientStates() {
+            binding.clickView.isPressed = false
+            binding.clickView.isActivated = false
+            binding.clickView.isSelected = false
+            binding.clickView.jumpDrawablesToCurrentState()
+        }
+
         fun bindContent(row: SettingRow.Item) {
             binding.tvTitle.text = row.model.title
             binding.tvInfo.text = row.model.info
         }
 
         fun bindFocusState(isFocused: Boolean, slot: Int) {
+            clearTransientStates()
             binding.iconArrow.alpha = if (isFocused) 1f else 0.6f
             binding.tvInfo.alpha = if (isFocused) 1f else 0.8f
             if (isFocused) {

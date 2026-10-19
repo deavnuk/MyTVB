@@ -22,6 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatDialog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
+import androidx.core.view.doOnNextLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mytvb.BuildConfig
@@ -35,6 +36,7 @@ import com.mytvb.ui.adapter.SettingAdapter
 import com.mytvb.ui.adapter.SettingRow
 import com.mytvb.ui.adapter.SettingSelectionDialogAdapter
 import com.mytvb.core.ui.base.BaseFragment
+import com.mytvb.core.ui.base.OnBackPressedHandler
 import com.mytvb.core.ui.base.ScaledTextView
 import com.mytvb.core.ui.base.UiCardSize
 import com.mytvb.core.ui.base.UiTextScale
@@ -73,7 +75,7 @@ import java.util.Locale
 import com.mytvb.core.ui.base.DialogWindowFit
 
 @Suppress("SpellCheckingInspection")
-class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
+class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedHandler {
 
     companion object {
         fun newInstance() = SettingsFragment()
@@ -535,7 +537,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         }
         val layoutManager = createExtraSpaceLayoutManager(
             resources.getDimensionPixelSize(R.dimen.px200)
-        )
+        ) { categoryButtonOf(currentCategory) }
         binding.recyclerViewSetting.layoutManager = layoutManager
         binding.recyclerViewSetting.adapter = adapter
         binding.recyclerViewSetting.itemAnimator = null
@@ -555,6 +557,86 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         binding.buttonSettingDm.setOnClickListener { showCategory(CATEGORY_DM) }
         binding.buttonSettingTeen.setOnClickListener { showCategory(CATEGORY_TEEN) }
         binding.buttonSettingAbout.setOnClickListener { showCategory(CATEGORY_ABOUT) }
+        // 左列分类按钮按右键：焦点进入右侧列表首条，避免几何搜索落到就近条目
+        (CATEGORY_COMMON..CATEGORY_ABOUT).forEach { category ->
+            categoryButtonOf(category).setOnKeyListener { _, keyCode, event ->
+                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
+                    event.action == KeyEvent.ACTION_DOWN &&
+                    focusFirstSettingItem()
+            }
+        }
+    }
+
+    /** 分类下标 → 左侧分类按钮（列表只有这一组按钮，顺序与分类一一对应）。 */
+    private fun categoryButtonOf(category: Int): View = when (category) {
+        CATEGORY_COMMON -> binding.buttonSettingCommon
+        CATEGORY_DISPLAY -> binding.buttonSettingDisplay
+        CATEGORY_PLAY -> binding.buttonSettingPlay
+        CATEGORY_PLAYER_UI -> binding.buttonSettingPlayerUi
+        CATEGORY_DM -> binding.buttonSettingDm
+        CATEGORY_TEEN -> binding.buttonSettingTeen
+        else -> binding.buttonSettingAbout
+    }
+
+    /** 把焦点送到右侧列表首条（跳过组头）；列表未布局完成时等下一帧再聚焦。 */
+    private fun focusFirstSettingItem(): Boolean {
+        val recyclerView = binding.recyclerViewSetting
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return false
+        val firstItemPosition = adapter.currentList.indexOfFirst { it is SettingRow.Item }
+        if (firstItemPosition < 0) {
+            return false
+        }
+        fun focusTarget(): Boolean =
+            layoutManager.findViewByPosition(firstItemPosition)
+                ?.let(::firstFocusable)?.requestFocus() == true
+
+        // 列表可能已下滚，回到顶部后首条才在可见范围
+        layoutManager.scrollToPosition(0)
+        if (!focusTarget()) {
+            recyclerView.doOnNextLayout { focusTarget() }
+        }
+        return true
+    }
+
+    private fun firstFocusable(view: View): View? {
+        if (view.visibility != View.VISIBLE) {
+            return null
+        }
+        if (view.isFocusable) {
+            return view
+        }
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                firstFocusable(view.getChildAt(index))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /**
+     * 返回键两级退出：焦点在右侧设置列表时先回到当前分类对应的左侧按钮，
+     * 再按一次返回才关闭设置页；焦点不在右侧时放行给宿主关闭。
+     */
+    override fun onBackPressed(): Boolean {
+        if (currentCategory !in CATEGORY_COMMON..CATEGORY_ABOUT) {
+            return false
+        }
+        val focused = activity?.currentFocus ?: return false
+        if (!isInsideSettingList(focused)) {
+            return false
+        }
+        return categoryButtonOf(currentCategory).requestFocus()
+    }
+
+    private fun isInsideSettingList(view: View): Boolean {
+        var current: View? = view
+        while (current != null) {
+            if (current === binding.recyclerViewSetting) {
+                return true
+            }
+            current = current.parent as? View
+        }
+        return false
     }
 
     private fun showCategory(category: Int) {
@@ -2053,7 +2135,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
         )
     }
 
-    private fun createExtraSpaceLayoutManager(extraLayoutSpacePx: Int): LinearLayoutManager {
+    private fun createExtraSpaceLayoutManager(
+        extraLayoutSpacePx: Int,
+        leftFocusTarget: (() -> View?)? = null
+    ): LinearLayoutManager {
         return object : LinearLayoutManager(requireContext()) {
             override fun calculateExtraLayoutSpace(
                 state: RecyclerView.State,
@@ -2065,6 +2150,10 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>() {
 
             // 列表首尾按上/下键时焦点留在原地，不回退到全局搜索甩到列表外
             override fun onInterceptFocusSearch(focused: View, direction: Int): View? {
+                // 设置页列表：任意条目按左键统一回到当前分类对应的左侧按钮
+                if (direction == View.FOCUS_LEFT) {
+                    leftFocusTarget?.invoke()?.let { return it }
+                }
                 val position = itemLayoutPosition(focused)
                 if (position != RecyclerView.NO_POSITION) {
                     if (direction == View.FOCUS_UP && position == 0) {

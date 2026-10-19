@@ -288,7 +288,7 @@
     <string name="theme">Theme</string>
     <string name="thursday">Thu</string>
     <string name="tip_play_from_history">Resumed at %1$s</string>
-    <string name="resume_hint_play_from_start">Play from start</string>
+    <string name="resume_hint_play_from_start">Press Back to play from start</string>
     <string name="total_rank">Overall</string>
     <string name="triple_action">Triple combo</string>
     <string name="tuesday">Tue</string>

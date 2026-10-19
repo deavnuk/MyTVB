@@ -52,7 +52,7 @@
             android:layout_height="wrap_content"
             android:lineSpacingExtra="@dimen/px8"
             android:textColor="?android:attr/textColorSecondary"
-            android:textSize="@dimen/px28" />
+            android:textSize="@dimen/px30" />
     </com.mytvb.ui.widget.NonFocusableScrollView>
 
     <androidx.appcompat.widget.AppCompatTextView

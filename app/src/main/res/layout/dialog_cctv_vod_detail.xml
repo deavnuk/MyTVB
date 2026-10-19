@@ -85,7 +85,7 @@
                 android:lineSpacingExtra="@dimen/px6"
                 android:maxLines="5"
                 android:textColor="?android:attr/textColorSecondary"
-                android:textSize="@dimen/px24" />
+                android:textSize="@dimen/px30" />
         </LinearLayout>
     </LinearLayout>
 

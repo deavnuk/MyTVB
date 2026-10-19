@@ -28,7 +28,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.ceil
 
 /**
  * 影视详情浮层：剧集信息 + 分集列表，点某一集直接交给播放器。
@@ -109,19 +108,22 @@ class CctvVodDetailDialog(
      *
      * 布局里写死的 maxLines 与"固定高卡片减去其余部分"的剩余高度不一定吻合，
      * 一旦行数多于可用高度，最后一行连省略号一起被裁掉——看起来就是简介
-     * 戛然而止、没有「…」。这里用实测行高反算能放下的行数，再据此截断，
-     * 保证省略号一定落在可见的最后一行。
+     * 戛然而止、没有「…」。
+     *
+     * 行高不用字体度量估算（含行距、字体上下沿留白时会差一两像素，刚好
+     * 多算一行），直接读已排版 layout 的真实行底位置，逐行退到完整可见为止。
      */
     private fun fitBriefLines() {
         val view = binding.textBrief
+        val layout = view.layout ?: return
         val available = view.height
-        if (available <= 0) return
-        val fm = view.paint.fontMetrics
-        val lineHeight = (ceil((fm.descent - fm.ascent).toDouble()) +
-            view.lineSpacingExtra).toInt().coerceAtLeast(1)
-        val maxLines = (available / lineHeight).coerceAtLeast(1)
-        if (view.maxLines == maxLines) return
-        view.maxLines = maxLines
+        if (available <= 0 || layout.lineCount <= 0) return
+        var lines = layout.lineCount
+        while (lines > 1 && layout.getLineBottom(lines - 1) > available) {
+            lines--
+        }
+        if (view.maxLines == lines) return
+        view.maxLines = lines
         view.requestLayout()
     }
 

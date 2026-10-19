@@ -254,7 +254,13 @@
     <string name="rewind">倒轉</string>
     <string name="saturday">週六</string>
     <string name="scan_sign_in">掃描 QR Code 登入</string>
-    <string name="sign_in_qr_failed_format">取得 QR Code 失敗: %1$s</string>
+    <string name="sign_in_qr_expired">QR Code 已過期</string>
+    <string name="sign_in_qr_refresh">點擊刷新</string>
+    <string name="sign_in_qr_failed_title">QR Code 取得失敗</string>
+    <string name="sign_in_qr_retry">點擊重試</string>
+    <string name="sign_in_qr_countdown_format">%1$s 後過期</string>
+    <string name="sign_in_qr_scanned">已掃碼，請在手機上確認</string>
+    <string name="sign_in_poll_network_error">網路連線無法使用，掃碼登入暫時無法完成，請檢查網路</string>
     <string name="science">科學</string>
     <string name="screen_ratio">畫面縮放</string>
     <string name="screen_mirror">畫面鏡像</string>

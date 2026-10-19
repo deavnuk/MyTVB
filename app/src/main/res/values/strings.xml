@@ -402,7 +402,13 @@
     <string name="rewind">快退</string>
     <string name="saturday">周六</string>
     <string name="scan_sign_in">扫描二维码登录</string>
-    <string name="sign_in_qr_failed_format">获取二维码失败: %1$s</string>
+    <string name="sign_in_qr_expired">二维码已过期</string>
+    <string name="sign_in_qr_refresh">点击刷新</string>
+    <string name="sign_in_qr_failed_title">二维码获取失败</string>
+    <string name="sign_in_qr_retry">点击重试</string>
+    <string name="sign_in_qr_countdown_format">%1$s 后过期</string>
+    <string name="sign_in_qr_scanned">已扫码，请在手机上确认</string>
+    <string name="sign_in_poll_network_error">网络连接不可用，扫码登录暂时无法完成，请检查网络</string>
     <string name="science">科学</string>
     <string name="screen_ratio">画面缩放</string>
     <string name="screen_mirror">画面镜像</string>

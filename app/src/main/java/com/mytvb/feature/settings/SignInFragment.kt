@@ -28,6 +28,10 @@ import com.mytvb.core.ui.base.AppToast
 class SignInFragment : BaseFragment<FragmentSignInBinding>() {
 
     companion object {
+        private const val TAG = "SignInFragment"
+        // 1.5s 间隔下约 8s：足够跨过网络抖动，又不至于让用户对着死码干等
+        private const val NETWORK_WARN_THRESHOLD = 5
+
         fun newInstance() = SignInFragment()
     }
 
@@ -38,11 +42,24 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
     private var pollingJob: Job? = null
     private val pollingInterval = 1500L
 
+    // auth_code 服务端有效期 180s；断网时拿不到 86038，只能本地计时兜底刷新
+    private val qrValidityMs = 180_000L
+    private var qrGeneratedAtMs = 0L
+    // 连续轮询失败计数：断网时 poll 会一直抛 UnknownHostException，原实现只打日志，
+    // 用户看到的是一张永远不变的二维码，无从判断是网断了还是码失效了
+    private var consecutivePollFailures = 0
+    private var networkWarningShown = false
+    private var countdownJob: Job? = null
+    // 二维码已进入过期态：覆盖层盖住旧码，轮询停止，等用户手动刷新
+    private var qrExpired = false
+
     override fun getViewBinding(inflater: LayoutInflater, container: ViewGroup?): FragmentSignInBinding {
         return FragmentSignInBinding.inflate(inflater, container, false)
     }
 
-    override fun initView() = Unit
+    override fun initView() {
+        binding.overlayExpired.setOnClickListener { loadQrCode() }
+    }
 
     override fun initData() {
         loadQrCode()
@@ -50,9 +67,18 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
 
     private fun loadQrCode() {
         binding.progressBar.visibility = android.view.View.VISIBLE
+        // 刷新期间收起过期覆盖层与倒计时，成败之后再决定去留
+        binding.overlayExpired.visibility = android.view.View.GONE
+        binding.tvCountdown.visibility = android.view.View.GONE
 
         viewLifecycleOwner.lifecycleScope.launch {
-            runCatching { NetworkManager.ensureWebFingerprintCookies() }
+            try {
+                NetworkManager.ensureWebFingerprintCookies()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 预热 web 指纹 cookie，失败不阻塞出码
+            }
             try {
                 val response = tvAuthRepository.generateTvQrCode()
                 binding.progressBar.visibility = android.view.View.GONE
@@ -60,14 +86,25 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                 if (response.isSuccess && response.data != null) {
                     authCode = response.data.authCode
                     val qrUrl = response.data.url
+                    // 新码落位：标题从「已扫码待确认」等状态恢复为初始提示；
+                    // 覆盖层文字恢复为过期文案（可能刚被失败态改成「获取失败/点击重试」）
+                    binding.textView.text = getString(R.string.scan_sign_in)
+                    binding.tvExpiredTitle.text = getString(R.string.sign_in_qr_expired)
+                    binding.tvExpiredAction.text = getString(R.string.sign_in_qr_refresh)
+                    qrGeneratedAtMs = System.currentTimeMillis()
+                    consecutivePollFailures = 0
+                    networkWarningShown = false
+                    qrExpired = false
                     displayQrCode(qrUrl)
+                    binding.tvCountdown.visibility = android.view.View.VISIBLE
                     startPolling()
+                    startCountdown()
                 } else {
-                    AppToast.show(requireContext(), getString(R.string.sign_in_qr_failed_format, response.message.orEmpty()))
+                    showQrLoadFailed("code=${response.code} ${response.message.orEmpty()}")
                 }
             } catch (e: Exception) {
                 binding.progressBar.visibility = android.view.View.GONE
-                AppToast.show(requireContext(), getString(R.string.sign_in_qr_failed_format, e.message.orEmpty()))
+                showQrLoadFailed(e.message.orEmpty())
             }
         }
     }
@@ -79,7 +116,7 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                 binding.imageView.setImageBitmap(it)
             }
         } catch (e: Exception) {
-            AppLog.e("SignInFragment", "displayQrCode failed", e)
+            AppLog.e(TAG, "displayQrCode failed", e)
             AppToast.show(requireContext(), "生成二维码失败")
         }
     }
@@ -107,7 +144,7 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                 setPixels(pixels, 0, width, 0, 0, width, height)
             }
         } catch (e: Exception) {
-            AppLog.e("SignInFragment", "generateQrCode failed", e)
+            AppLog.e(TAG, "generateQrCode failed", e)
             null
         }
     }
@@ -122,11 +159,68 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
         }
     }
 
+    /**
+     * 过期倒计时：以本地出码时间为基准（服务端 auth_code 有效期 180s），每秒刷新剩余
+     * 时间。到点进入过期态——不自动换码，盖覆盖层等用户手动刷新；断网期间 poll 拿不到
+     * 服务端 86038，本地计时同样兜底到点。
+     */
+    private fun startCountdown() {
+        countdownJob?.cancel()
+        countdownJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                val remainingMs = qrGeneratedAtMs + qrValidityMs - System.currentTimeMillis()
+                if (remainingMs <= 0L) {
+                    showExpiredState()
+                    return@launch
+                }
+                val totalSec = (remainingMs + 999L) / 1000L
+                binding.tvCountdown.text = getString(
+                    R.string.sign_in_qr_countdown_format,
+                    String.format(java.util.Locale.US, "%d:%02d", totalSec / 60, totalSec % 60)
+                )
+                delay(1000)
+            }
+        }
+    }
+
+    private fun showExpiredState() {
+        qrExpired = true
+        pollingJob?.cancel()
+        countdownJob?.cancel()
+        binding.tvCountdown.visibility = android.view.View.GONE
+        binding.overlayExpired.visibility = android.view.View.VISIBLE
+        // 登录页没有其他可聚焦控件，焦点落上即可用 OK 键刷新
+        binding.overlayExpired.requestFocus()
+        AppLog.i(TAG, "QR expired, stop polling and wait for manual refresh")
+    }
+
+    // 刷新请求失败时若此前已是过期态，把覆盖层盖回去，保持「点击刷新」可再试
+    private fun restoreExpiredOverlayIfNeeded() {
+        if (qrExpired) binding.overlayExpired.visibility = android.view.View.VISIBLE
+    }
+
+    /**
+     * 出码失败（网络断开/服务端报错）：不 toast 原始异常（英文技术信息对用户无意义），
+     * 改为在二维码区盖「获取失败/点击重试」覆盖层——遥控 OK 与触摸都可再试，比
+     * 死白一片只能退出重进强。原始错误记日志排查。
+     */
+    private fun showQrLoadFailed(raw: String) {
+        AppLog.w(TAG, "generate QR failed: $raw")
+        // 置过期语义：此状态下再失败，restoreExpiredOverlayIfNeeded 才会把覆盖层盖回
+        qrExpired = true
+        binding.tvExpiredTitle.text = getString(R.string.sign_in_qr_failed_title)
+        binding.tvExpiredAction.text = getString(R.string.sign_in_qr_retry)
+        binding.overlayExpired.visibility = android.view.View.VISIBLE
+        binding.overlayExpired.requestFocus()
+    }
+
     private suspend fun checkTvPollResult() {
         if (authCode.isEmpty()) return
 
         try {
             val response = tvAuthRepository.pollTvQrCode(authCode)
+            consecutivePollFailures = 0
+            networkWarningShown = false
             when {
                 response.code == 0 && response.data != null -> {
                     pollingJob?.cancel()
@@ -158,24 +252,35 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                     pollData.tokenInfo
                         ?.takeIf { it.accessToken.isNotBlank() }
                         ?.let { NetworkManager.saveAppToken(it.accessToken, it.refreshToken, it.expiresIn) }
-                        ?: AppLog.w("SignInFragment", "TV poll success but token_info missing, app feed unavailable")
+                        ?: AppLog.w(TAG, "TV poll success but token_info missing, app feed unavailable")
                     AppToast.show(requireContext(), "登录成功")
                     onLoginSuccess()
                 }
                 response.code == 86038 -> {
-                    // 二维码过期
-                    pollingJob?.cancel()
-                    loadQrCode()
+                    // 服务端判定过期：与本地倒计时到点走同一条过期态路径，等用户手动刷新
+                    showExpiredState()
                 }
                 response.code == 86101 -> {
                     // 未扫码，继续轮询
                 }
                 response.code == 86090 -> {
-                    // 已扫码待确认，继续轮询
+                    // 已扫码待确认：切换标题给用户反馈，此前此状态界面无任何变化
+                    binding.textView.text = getString(R.string.sign_in_qr_scanned)
                 }
             }
         } catch (e: Exception) {
-            AppLog.w("SignInFragment", "TV poll error: ${e.message}")
+            // 协程取消必须原样上抛，否则页面销毁后轮询不会真正停下
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            consecutivePollFailures++
+            AppLog.w(TAG, "TV poll error(${consecutivePollFailures}): ${e.message}")
+            // 断网时 poll 每 1.5s 抛一次 UnknownHostException，原实现只打日志：
+            // 用户面对一张永不变化的二维码，无法区分「没扫上」和「根本没网」
+            if (consecutivePollFailures >= NETWORK_WARN_THRESHOLD && !networkWarningShown) {
+                networkWarningShown = true
+                if (isAdded) {
+                    AppToast.show(requireContext(), R.string.sign_in_poll_network_error)
+                }
+            }
         }
     }
 
@@ -192,7 +297,7 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                 // refreshCurrentUserInfo 的 requireCurrent 判过期抛 StaleSessionException（属取消），
                 // 被 launch 静默吞掉后 popBackStack 永不执行——扫码页卡住的回归点。cookie 已落地，
                 // 用户信息由会话健康检查兜底，页面照常关闭。
-                AppLog.w("SignInFragment", "post-login refresh cancelled (stale session expected): ${e.message}")
+                AppLog.w(TAG, "post-login refresh cancelled (stale session expected): ${e.message}")
                 throw e
             } finally {
                 // 无论用户信息刷新成败，扫码页都必须关闭；用户已按 BACK 退出时不重复 pop
@@ -204,5 +309,6 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
     override fun onDestroyView() {
         super.onDestroyView()
         pollingJob?.cancel()
+        countdownJob?.cancel()
     }
 }

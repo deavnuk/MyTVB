@@ -253,7 +253,13 @@
     <string name="rewind">Rewind</string>
     <string name="saturday">Sat</string>
     <string name="scan_sign_in">Scan QR code to sign in</string>
-    <string name="sign_in_qr_failed_format">Failed to get QR code: %1$s</string>
+    <string name="sign_in_qr_expired">QR code expired</string>
+    <string name="sign_in_qr_refresh">Tap to refresh</string>
+    <string name="sign_in_qr_failed_title">Failed to load QR code</string>
+    <string name="sign_in_qr_retry">Tap to retry</string>
+    <string name="sign_in_qr_countdown_format">Expires in %1$s</string>
+    <string name="sign_in_qr_scanned">Scanned. Please confirm on your phone.</string>
+    <string name="sign_in_poll_network_error">Network unavailable. Sign-in cannot complete. Check your connection.</string>
     <string name="science">Science</string>
     <string name="screen_ratio">Screen scale</string>
     <string name="screen_mirror">Screen mirror</string>

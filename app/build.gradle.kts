@@ -256,6 +256,9 @@ androidComponents {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
+    // 文档开始前注入 JS：CCTV 播放页在老 WebView 上会因 postMessage 参数校验
+    // 抛 TypeError 中断播放器初始化，兼容补丁必须早于页面脚本执行
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.2.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")

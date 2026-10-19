@@ -2825,7 +2825,11 @@ class MyPlayerView @JvmOverloads constructor(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             isFocusable = false
-            isClickable = false
+            isClickable = true
+            setOnClickListener {
+                // 触摸屏上点击整条提示等同于按返回键：取消进度恢复并从头播放
+                onResumeProgressCancelled?.invoke()
+            }
             alpha = 1f
             visibility = GONE
             setPadding(dp(10), dp(5), dp(10), dp(5))

@@ -4,16 +4,14 @@ import android.content.Context
 import com.mytvb.core.common.content.ContentFilter
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.core.common.settings.AppSettingsDataStore
+import com.mytvb.feature.home.FeedSourceSetting
+import com.mytvb.feature.home.RecommendFeedRepository
 import com.mytvb.model.video.VideoModel
-import com.mytvb.network.api.ApiService
-import com.mytvb.network.cookie.CookieManager
 
 class DouyinModeManager(
     private val appContext: Context,
     private val appSettings: AppSettingsDataStore,
-    private val apiService: ApiService,
-    private val noCookieApiService: ApiService,
-    private val cookieManager: CookieManager
+    private val recommendFeedRepository: RecommendFeedRepository
 ) {
 
     companion object {
@@ -31,8 +29,11 @@ class DouyinModeManager(
     private var sourceAid: Long = 0L
     private var initialized: Boolean = false
     private var appending: Boolean = false
+    /** 首页推荐流页码（从 1 起），与「首页推荐来源」设置共用同一套翻页语义 */
     private var freshIdx: Int = 0
     private var generation: Long = 0L
+    /** 建队时使用的推荐来源，用户切换设置后据此重建队列 */
+    private var queueSourceIsApp: Boolean? = null
 
     /** 读取设置存储，判断抖音模式是否已启用 */
     fun isEnabled(): Boolean {
@@ -54,7 +55,7 @@ class DouyinModeManager(
         return video.hasPlaybackIdentity
     }
 
-    /** 初始化推荐列表，当前视频作为起点，后续仅调用首页推荐 API */
+    /** 初始化推荐列表，当前视频作为起点，后续调用与首页同源的推荐流 */
     suspend fun initialize(sourceVideo: VideoModel) {
         if (!isDouyinPlayable(sourceVideo)) {
             reset()
@@ -65,11 +66,16 @@ class DouyinModeManager(
         }
         reset()
         sourceAid = sourceVideo.aid
-        freshIdx = nextRecommendStartFreshIdx()
+        queueSourceIsApp = currentSourceIsApp()
+        freshIdx = 1
         recommendList.add(sourceVideo)
         currentIndex = 0
         initialized = true
-        AppLog.i(TAG, "initialize source=${sourceVideo.queueId()} startFreshIdx=$freshIdx")
+        AppLog.i(
+            TAG,
+            "initialize source=${sourceVideo.queueId()} " +
+                "feedSource=${if (queueSourceIsApp == true) "APP端" else "网页端"} freshIdx=$freshIdx"
+        )
         appending = true
         try {
             fillFutureBuffer("initialize", INITIAL_LOAD_COUNT, MAX_APPEND_PAGES_PER_RUN)
@@ -77,6 +83,25 @@ class DouyinModeManager(
             appending = false
         }
     }
+
+    /**
+     * 用户切换「首页推荐来源」后重建队列：来源变了继续用旧流会让上下滑内容
+     * 与首页不一致，这里主动失效，让下一次取推荐时按新来源重建。
+     */
+    fun resetIfSourceChanged() {
+        if (!initialized) return
+        val current = currentSourceIsApp()
+        if (queueSourceIsApp == current) return
+        AppLog.i(
+            TAG,
+            "reset_source_changed from=${if (queueSourceIsApp == true) "APP端" else "网页端"} " +
+                "to=${if (current) "APP端" else "网页端"}"
+        )
+        reset()
+    }
+
+    private fun currentSourceIsApp(): Boolean =
+        FeedSourceSetting.isAppSource(FeedSourceSetting.KEY_HOME_FEED_SOURCE)
 
     /** 返回下一个推荐视频，到达末尾返回 null */
     fun next(): VideoModel? {
@@ -120,6 +145,12 @@ class DouyinModeManager(
 
     /** 列表是否已初始化且非空 */
     fun hasList(): Boolean = initialized && recommendList.isNotEmpty()
+
+    /** 队列当前指向的视频 aid（0 表示无），用于识别「是不是队列自己跳过来的」。 */
+    fun currentAid(): Long {
+        if (!initialized) return 0L
+        return recommendList.getOrNull(currentIndex)?.aid ?: 0L
+    }
 
     /** 当前索引是否达到追加阈值 */
     fun shouldAppend(): Boolean {
@@ -189,58 +220,37 @@ class DouyinModeManager(
         )
     }
 
+    /**
+     * 取一页推荐：与首页推荐流完全同源（APP 端 / 网页端 V8，由「首页推荐来源」决定），
+     * 不再自建一条无签名、无 cookie 的 V1 请求——那条路径在登录态下容易被风控拦成空列表，
+     * 表现为上下滑时提示「该视频无推荐」。
+     */
     private suspend fun fetchRecommend(idx: Int, count: Int): List<VideoModel> {
         return try {
-            val loggedIn = cookieManager.hasSessionCookie()
-            val requestIdx = idx.coerceAtLeast(1)
-            AppLog.i(TAG, "recommend_request freshIdx=$requestIdx count=$count loggedIn=$loggedIn")
-            val response = requestRecommend(
-                api = if (loggedIn) apiService else noCookieApiService,
-                idx = requestIdx,
-                count = count
+            AppLog.i(
+                TAG,
+                "recommend_request freshIdx=$idx count=$count " +
+                    "feedSource=${if (currentSourceIsApp()) "APP端" else "网页端"}"
             )
-            val resolvedResponse = if (loggedIn && response.code == -101) {
-                AppLog.w(TAG, "recommend auth expired, fallback noCookie freshIdx=$requestIdx count=$count")
-                requestRecommend(noCookieApiService, requestIdx, count)
-            } else {
-                response
-            }
-            if (resolvedResponse.isSuccess) {
-                val rawItems = resolvedResponse.data?.items.orEmpty()
-                val playableItems = rawItems.filter {
-                    isDouyinPlayable(it)
-                }
-                val filteredItems = ContentFilter.filterVideos(appContext, playableItems)
-                AppLog.i(
-                    TAG,
-                    "recommend_result freshIdx=$requestIdx raw=${rawItems.size} playable=${playableItems.size} " +
-                        "filtered=${filteredItems.size} first=${filteredItems.take(3).joinToString("|") { it.queueId() }}"
-                )
-                filteredItems
-            } else {
-                AppLog.w(TAG, "recommend failed code=${resolvedResponse.code} message=${resolvedResponse.errorMessage} loggedIn=$loggedIn")
-                emptyList()
-            }
+            val items = recommendFeedRepository.loadFeedPageForQueue(
+                pageSize = count,
+                freshIdx = idx,
+                fetchRow = idx
+            )
+            val playableItems = items.filter { isDouyinPlayable(it) }
+            val filteredItems = ContentFilter.filterVideos(appContext, playableItems)
+            AppLog.i(
+                TAG,
+                "recommend_result freshIdx=$idx raw=${items.size} playable=${playableItems.size} " +
+                    "filtered=${filteredItems.size} first=${filteredItems.take(3).joinToString("|") { it.queueId() }}"
+            )
+            filteredItems
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            AppLog.w(TAG, "recommend exception loggedIn=${cookieManager.hasSessionCookie()} freshIdx=$idx count=$count message=${e.message}")
+            AppLog.w(TAG, "recommend exception freshIdx=$idx count=$count message=${e.message}")
             emptyList()
         }
-    }
-
-    private suspend fun requestRecommend(
-        api: ApiService,
-        idx: Int,
-        count: Int
-    ) = api.getRecommendList(
-        freshIdx = idx,
-        ps = count
-    )
-
-    private fun nextRecommendStartFreshIdx(): Int {
-        val seconds = System.currentTimeMillis() / 1000L
-        return (seconds + generation % 1000L)
-            .coerceIn(1L, Int.MAX_VALUE.toLong())
-            .toInt()
     }
 
     private fun trimWindow() {

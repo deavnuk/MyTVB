@@ -111,6 +111,28 @@ class RecommendFeedRepository(
     }
 
     /**
+     * 供播放页抖音队列复用：按「首页推荐来源」设置取一页推荐，返回纯列表。
+     * 与首页完全同源（APP 端流失败自动回退网页端 V8），保证上下滑切换的内容
+     * 和用户在首页看到的推荐流一致，而不是另走一条无签名的旧接口。
+     */
+    suspend fun loadFeedPageForQueue(
+        pageSize: Int,
+        freshIdx: Int,
+        fetchRow: Int
+    ): List<VideoModel> {
+        val page = loadNetworkPage(
+            page = 1,
+            pageSize = pageSize,
+            freshIdx = freshIdx,
+            fetchRow = fetchRow
+        ).getOrElse { throwable ->
+            AppLog.w(TAG, "loadFeedPageForQueue failed freshIdx=$freshIdx: ${throwable.message}")
+            return emptyList()
+        }
+        return page.items
+    }
+
+    /**
      * 已登录（有 app access_token）时优先走 app 端推荐流；接口失败或解析为空返回 null，
      * 由调用方回退 web 流。app 流内容按 app 账号个性化，与 web 推荐池不同源。
      */

@@ -192,6 +192,15 @@ internal class DouyinPlaybackCoordinator(
             internalNavigationKey = ""
             return
         }
+        // APP 端推荐流不返回 bvid，播放后详情接口会把真实 bvid 回填到当前视频，
+        // 若仍按身份串精确比对，每次上下滑都会被误判成「外部换片」而重建队列。
+        // 队列内的跳转以 aid 为准（aid 在两条流里都稳定存在）。
+        if (isInternalNavigation(currentVideo, currentAid, currentKey)) {
+            sourceAid = currentAid
+            sourceKey = currentKey
+            internalNavigationKey = ""
+            return
+        }
         if (currentKey.isNotBlank() && currentKey != sourceKey) {
             AppLog.i(TAG, "DouyinQueue reset_external current=${currentVideo?.douyinDebugId().orEmpty()} sourceKey=$sourceKey internalKey=$internalNavigationKey")
             sourceAid = currentAid
@@ -203,6 +212,17 @@ internal class DouyinPlaybackCoordinator(
         }
     }
 
+    /** 当前播放的是否就是队列里刚跳过去的那一条（容忍 bvid 回填导致的身份串变化）。 */
+    private fun isInternalNavigation(
+        currentVideo: VideoModel?,
+        currentAid: Long,
+        currentKey: String
+    ): Boolean {
+        if (currentVideo == null || currentKey.isBlank()) return false
+        if (currentAid <= 0L) return false
+        return douyinModeManager.currentAid() == currentAid
+    }
+
     fun ensureQueueStarted() {
         val currentVideo = sessionCoordinator.getCurrentVideo() ?: return
         if (!douyinModeManager.isApplicable(currentVideo)) {
@@ -212,6 +232,10 @@ internal class DouyinPlaybackCoordinator(
             }
             initializing = false
             return
+        }
+        // 用户改了「首页推荐来源」：旧队列来自另一条流，直接作废并按新来源重建
+        if (douyinModeManager.hasList()) {
+            douyinModeManager.resetIfSourceChanged()
         }
         if (douyinModeManager.hasList() || initializing) return
 

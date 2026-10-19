@@ -27,13 +27,26 @@ import com.mytvb.core.ui.base.UiTextScale
 import pl.droidsonroids.gif.GifDrawable
 import kotlin.math.ceil
 
+/**
+ * 封面比例。全 App 视频卡默认 16:9 横版；影视/番剧这类竖版海报素材（央视片库
+ * 178×226）用 [POSTER_4_5]，按竖版裁切才不会被 centerCrop 切掉上下主体。
+ */
+enum class VideoCardCoverRatio(val aspectWidth: Int, val aspectHeight: Int) {
+    LANDSCAPE_16_9(16, 9),
+    POSTER_4_5(4, 5)
+}
+
 object VideoLightCardFactory {
 
-    fun create(parent: ViewGroup, source: String = "VideoLightCard.flat"): VideoCardViews {
+    fun create(
+        parent: ViewGroup,
+        source: String = "VideoLightCard.flat",
+        coverRatio: VideoCardCoverRatio = VideoCardCoverRatio.LANDSCAPE_16_9
+    ): VideoCardViews {
         val context = parent.context
         val metrics = LightCardMetrics.get(context)
 
-        val root = FlatVideoLightCardLayout(context, metrics, source).apply {
+        val root = FlatVideoLightCardLayout(context, metrics, source, coverRatio).apply {
             id = R.id.click_view
             isClickable = true
             isFocusable = true
@@ -925,6 +938,7 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
     context: Context,
     private val metrics: LightCardMetrics = LightCardMetrics.get(context),
     private val perfSource: String = "VideoLightCard.flat",
+    private val coverRatio: VideoCardCoverRatio = VideoCardCoverRatio.LANDSCAPE_16_9,
     attrs: AttributeSet? = null
 ) : ViewGroup(context, attrs) {
 
@@ -955,7 +969,7 @@ private class FlatVideoLightCardLayout @JvmOverloads constructor(
             return
         }
         coverWidth = contentWidth
-        coverHeight = contentWidth * 9 / 16
+        coverHeight = contentWidth * coverRatio.aspectHeight / coverRatio.aspectWidth
 
         measureExact(imageView, coverWidth, coverHeight)
         measureExact(coverMetaOverlay, coverWidth, coverHeight)

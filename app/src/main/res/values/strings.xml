@@ -226,6 +226,9 @@
     <string name="cctv_vod_filter_title_format">选择%1$s</string>
     <string name="cctv_vod_episode_count_format">共%1$d集</string>
     <string name="cctv_vod_episode_no_count">剧集</string>
+    <string name="cctv_vod_actors_format">主演：%1$s</string>
+    <string name="cctv_vod_brief_empty">暂无简介</string>
+    <string name="cctv_vod_detail_action">详情</string>
     <string name="cctv_vod_episode_title_format">第%1$d集</string>
     <string name="cctv_vod_empty">暂无内容</string>
     <string name="cctv_vod_load_failed">加载失败，请重试</string>

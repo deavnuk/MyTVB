@@ -48,7 +48,9 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
 
     private val okHttpClient: OkHttpClient by inject()
     private val api: CctvVodApi by lazy { CctvVodApi(okHttpClient) }
-    private val spanCount by lazy { resources.adaptiveSpanCount() }
+    // 片库卡片是竖版海报（4:5），列数比全 App 默认的 16:9 网格多一档，
+    // 保持与央视片库页 6 列一致的观感（超宽屏同比例放宽到 12 列）
+    private val spanCount by lazy { resources.adaptiveSpanCount(base = 6, wide = 12) }
     private val mainNavigationViewModel: MainNavigationViewModel by activityViewModels()
 
     private lateinit var adapter: CctvVodAdapter

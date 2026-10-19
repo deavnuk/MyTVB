@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.LeadingMarginSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -25,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.ceil
 
 /**
  * 影视详情浮层：剧集信息 + 分集列表，点某一集直接交给播放器。
@@ -69,7 +73,26 @@ class CctvVodDetailDialog(
     private fun bindAlbum() {
         binding.textTitle.text = album.title
         binding.textMeta.text = buildMeta()
-        binding.textBrief.text = album.brief.ifBlank { album.actors }
+        binding.textBrief.text = album.brief.ifBlank { album.actors }.let { brief ->
+            if (brief.isBlank()) {
+                context.getString(R.string.cctv_vod_brief_empty)
+            } else {
+                firstLineIndent(binding.textBrief, brief)
+            }
+        }
+        binding.buttonDetail.setOnClickListener {
+            CctvVodBriefDialog.show(context, album)
+        }
+        // 简介区高度由固定高卡片的剩余空间决定，而 maxLines 是固定值：
+        // 两者对不上时多出的那行被裁掉，省略号正好画在看不见的那一行。
+        // 弹窗高度在 show 之后才确定，用布局回调按实际高度校正行数。
+        // 必须 post 到布局流程之后再改：在布局回调里直接 requestLayout 会被
+        // 当前这一轮布局吞掉，maxLines 改了但 TextView 仍按旧行数排版。
+        binding.textBrief.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) {
+                binding.textBrief.post { fitBriefLines() }
+            }
+        }
         ImageLoader.load(
             imageView = binding.imageCover,
             url = album.coverUrl,
@@ -79,6 +102,40 @@ class CctvVodDetailDialog(
         binding.recyclerView.layoutManager = GridLayoutManager(context, EPISODE_SPAN)
         binding.recyclerView.adapter = episodeAdapter
         binding.recyclerView.itemAnimator = null
+    }
+
+    /**
+     * 按简介控件的实际可用高度确定行数。
+     *
+     * 布局里写死的 maxLines 与"固定高卡片减去其余部分"的剩余高度不一定吻合，
+     * 一旦行数多于可用高度，最后一行连省略号一起被裁掉——看起来就是简介
+     * 戛然而止、没有「…」。这里用实测行高反算能放下的行数，再据此截断，
+     * 保证省略号一定落在可见的最后一行。
+     */
+    private fun fitBriefLines() {
+        val view = binding.textBrief
+        val available = view.height
+        if (available <= 0) return
+        val fm = view.paint.fontMetrics
+        val lineHeight = (ceil((fm.descent - fm.ascent).toDouble()) +
+            view.lineSpacingExtra).toInt().coerceAtLeast(1)
+        val maxLines = (available / lineHeight).coerceAtLeast(1)
+        if (view.maxLines == maxLines) return
+        view.maxLines = maxLines
+        view.requestLayout()
+    }
+
+    /** 中文首行缩进两字（缩进宽度按当前字号实测，随字号档缩放）。 */
+    private fun firstLineIndent(view: android.widget.TextView, text: String): CharSequence {
+        val indent = view.paint.measureText("\u3000\u3000").toInt()
+        return SpannableString(text).apply {
+            setSpan(
+                LeadingMarginSpan.Standard(indent, 0),
+                0,
+                length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
     }
 
     private fun buildMeta(): String {

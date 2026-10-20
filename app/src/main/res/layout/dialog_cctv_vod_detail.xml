@@ -100,6 +100,16 @@
             </LinearLayout>
 
             <androidx.appcompat.widget.AppCompatTextView
+                android:id="@+id/text_actors"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/px12"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="@dimen/px26" />
+
+            <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/text_brief"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"

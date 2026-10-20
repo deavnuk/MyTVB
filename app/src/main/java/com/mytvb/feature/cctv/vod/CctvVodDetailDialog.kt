@@ -75,12 +75,16 @@ class CctvVodDetailDialog(
     private fun bindAlbum() {
         binding.textTitle.text = album.title
         binding.textMeta.text = buildMeta()
-        binding.textBrief.text = album.brief.ifBlank { album.actors }.let { brief ->
-            if (brief.isBlank()) {
-                context.getString(R.string.cctv_vod_brief_empty)
-            } else {
-                firstLineIndent(binding.textBrief, brief)
-            }
+        if (album.actors.isNotBlank()) {
+            binding.textActors.visibility = View.VISIBLE
+            binding.textActors.text = context.getString(R.string.cctv_vod_actors_format, album.actors)
+        } else {
+            binding.textActors.visibility = View.GONE
+        }
+        binding.textBrief.text = if (album.brief.isBlank()) {
+            context.getString(R.string.cctv_vod_brief_empty)
+        } else {
+            firstLineIndent(binding.textBrief, album.brief)
         }
         binding.buttonDetail.setOnClickListener {
             CctvVodBriefDialog.show(context, album)

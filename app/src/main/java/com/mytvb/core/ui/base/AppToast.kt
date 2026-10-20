@@ -165,7 +165,7 @@ object AppToast {
         val screenW = activity.resources.displayMetrics.widthPixels
         val view = TextView(activity).apply {
             setText(text)
-            setTextColor(Color.WHITE)
+            setTextColor(Color.BLACK)
             setTextSize(TypedValue.COMPLEX_UNIT_PX, textPx)
             includeFontPadding = false
             setGravity(Gravity.CENTER)
@@ -174,7 +174,7 @@ object AppToast {
             setPadding(padH, padV, padH, padV)
             background = GradientDrawable().apply {
                 cornerRadius = designPx(activity, R.dimen.px16).toFloat()
-                setColor(0xE6111216.toInt())
+                setColor(0xFFF5F6F8.toInt())
             }
             alpha = 0f
             isFocusable = false
@@ -190,9 +190,11 @@ object AppToast {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             overlayGravity
         )
-        when {
-            overlayGravity and Gravity.TOP != 0 -> params.topMargin = yOffsetPx
-            overlayGravity and Gravity.CENTER_VERTICAL != 0 -> Unit
+        // TOP(0x30) 与 BOTTOM(0x50) 共享 0x10 位，不能用 and TOP 判别，否则底部
+        // 恒被判成顶部（提示全部飞到屏幕顶端）；必须取 VERTICAL_GRAVITY_MASK 再比对
+        when (overlayGravity and Gravity.VERTICAL_GRAVITY_MASK) {
+            Gravity.TOP -> params.topMargin = yOffsetPx
+            Gravity.CENTER_VERTICAL -> Unit
             else -> params.bottomMargin = yOffsetPx
         }
         decor.addView(view, params)
@@ -233,9 +235,9 @@ object AppToast {
         (view.parent as? ViewGroup)?.removeView(view)
     }
 
-    private fun overlayGravity(gravity: Int): Int = when {
-        gravity and Gravity.TOP != 0 -> Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        gravity and Gravity.CENTER_VERTICAL != 0 -> Gravity.CENTER
+    private fun overlayGravity(gravity: Int): Int = when (gravity and Gravity.VERTICAL_GRAVITY_MASK) {
+        Gravity.TOP -> Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        Gravity.CENTER_VERTICAL -> Gravity.CENTER
         else -> Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
     }
 

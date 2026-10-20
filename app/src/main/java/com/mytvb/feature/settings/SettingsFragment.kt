@@ -38,6 +38,7 @@ import com.mytvb.ui.adapter.SettingSelectionDialogAdapter
 import com.mytvb.core.ui.base.BaseFragment
 import com.mytvb.core.ui.base.OnBackPressedHandler
 import com.mytvb.core.ui.base.ScaledTextView
+import com.mytvb.ui.widget.NonFocusableScrollView
 import com.mytvb.core.ui.base.UiCardSize
 import com.mytvb.core.ui.base.UiTextScale
 import com.mytvb.core.ui.base.UiScale
@@ -158,6 +159,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
         private const val KEY_RISK_CONTROL = "action_risk_control"
         private const val KEY_APP_VERSION = "info_app_version"
         private const val KEY_CHECK_UPDATE = "action_check_update"
+        private const val KEY_USAGE_TIPS = "action_usage_tips"
         private const val KEY_X5_CORE = "action_x5_core"
         private const val KEY_LOG_RECORD = "action_log_record"
         private const val KEY_LAN_LOG = "action_lan_log"
@@ -396,6 +398,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
             SettingGroup(R.string.setting_group_about_app, listOf(
                 plain(KEY_APP_VERSION, R.string.app_version, BuildConfig.VERSION_NAME),
                 plain(KEY_CHECK_UPDATE, R.string.check_update, getString(R.string.update_click_to_check))
+                // 使用技巧入口暂时屏蔽,弹窗实现保留(showUsageTipsDialog),放开加回:
+                // plain(KEY_USAGE_TIPS, R.string.usage_tips)
             )),
             SettingGroup(R.string.setting_group_diagnostics, listOf(
                 plain(KEY_X5_CORE, R.string.x5_core_replace, getString(R.string.x5_status_not_installed)),
@@ -783,6 +787,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
             KEY_PSAS_INTERVAL -> showPsasIntervalChoiceDialog()
             // —— 关于 ——
             KEY_CHECK_UPDATE -> checkForUpdate()
+            KEY_USAGE_TIPS -> showUsageTipsDialog()
             KEY_X5_CORE -> startXdDownload()
             KEY_LOG_RECORD -> {
                 val newValue = if (AppLog.isEnabled) "关" else "开"
@@ -799,6 +804,125 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
                 activity?.openOverlayFragment(CodecInfoFragment.newInstance(), "codec_info")
             }
         }
+    }
+
+    /** 使用技巧弹窗:标题 + 滚动正文 + 关闭按钮;正文过长钳 55% 屏高滚动,焦点在按钮时上下键由弹窗层转发驱动滚动。 */
+    private fun showUsageTipsDialog() {
+        val context = requireContext()
+        val resources = context.resources
+        val px40 = resources.getDimensionPixelSize(R.dimen.px40)
+        val px35 = resources.getDimensionPixelSize(R.dimen.px35)
+        val px20 = resources.getDimensionPixelSize(R.dimen.px20)
+        val px18 = resources.getDimensionPixelSize(R.dimen.px18)
+        val px16 = resources.getDimensionPixelSize(R.dimen.px16)
+        val px14 = resources.getDimensionPixelSize(R.dimen.px14)
+        val px10 = resources.getDimensionPixelSize(R.dimen.px10)
+        val textColor = resources.getColor(R.color.textColor, null)
+
+        val dialog = AppCompatDialog(context, R.style.DialogTheme)
+        dialog.setCanceledOnTouchOutside(true)
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.dialog_background)
+            isClickable = true
+            isFocusable = false
+            isFocusableInTouchMode = false
+            setOnClickListener { dialog.dismiss() }
+        }
+
+        root.addView(ScaledTextView(context).apply {
+            text = getString(R.string.usage_tips)
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px36))
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(px40, px35, px40, px20) }
+        })
+
+        root.addView(View(context).apply {
+            setBackgroundColor(0x1FFFFFFF)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                resources.getDimensionPixelSize(R.dimen.px2)
+            ).apply { setMargins(px18, 0, px18, 0) }
+        })
+
+        val contentScroll = NonFocusableScrollView(context).apply {
+            maxHeight = (resources.displayMetrics.heightPixels * 0.55f).toInt()
+            persistentScrollBar = true
+            isFocusable = false
+            scrollBarWidth = resources.getDimensionPixelSize(R.dimen.px8)
+            isVerticalFadingEdgeEnabled = true
+            setFadingEdgeLength(resources.getDimensionPixelSize(R.dimen.px30))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(px40, px20, px40, 0)
+                weight = 1f
+            }
+        }
+        contentScroll.addView(ScaledTextView(context).apply {
+            text = getString(R.string.usage_tips_content)
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px30))
+            setLineSpacing(resources.getDimension(R.dimen.px6), 1f)
+        })
+        root.addView(contentScroll)
+
+        val closeButton = ScaledTextView(context).apply {
+            text = getString(R.string.close)
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px32))
+            setPadding(px16, px14, px16, px14)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { dialog.dismiss() }
+            setBackgroundResource(R.drawable.bg_dialog_button)
+        }
+        root.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(px18, px20, px18, px18) }
+            addView(closeButton, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(px10, 0, px10, 0) })
+        })
+
+        DialogWindowFit.overlay(
+            dialog,
+            DialogWindowFit.wrapContentInScroll(context, root),
+            // 阅读型正文比设置页其他弹窗(px800)更宽,提升单行容纳量;overlay 自动钳屏宽 92%
+            resources.getDimensionPixelSize(R.dimen.px1100),
+            tag = "usageTips"
+        )
+        // 焦点在关闭按钮上时 DPAD 上/下不会路由进 ScrollView,由弹窗层转发驱动正文滚动;
+        // 左右/确认/返回不拦,返回键关闭弹窗不受影响
+        dialog.setOnKeyListener { _, keyCode, event ->
+            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+            val step = resources.getDimensionPixelSize(R.dimen.px120)
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    contentScroll.smoothScrollBy(0, -step)
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    contentScroll.smoothScrollBy(0, step)
+                    true
+                }
+                else -> false
+            }
+        }
+        dialog.show()
+        // TV 弹窗惯例显式落焦点:show 后立即调会被初始焦点分配覆盖,须等首次布局完成
+        root.post { closeButton.requestFocus() }
     }
 
     /** 触发 X5 TBS 内核下载安装（复刻 APP 升级同款下载弹窗）。 */

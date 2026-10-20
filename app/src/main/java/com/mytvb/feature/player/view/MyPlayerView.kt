@@ -1952,10 +1952,19 @@ class MyPlayerView @JvmOverloads constructor(
             } else {
                 // Long press: clear tap accumulation, seek to target
                 resetTapAccumulate()
-                if (timebarSeekActive && player != null) {
-                    player?.seekTo(timebarSeekTargetMs)
-                    onUserSeekListener?.invoke(timebarSeekTargetMs)
-                    syncDanmakuPosition(timebarSeekTargetMs, forceSeek = true)
+                val currentPlayer = player
+                if (timebarSeekActive && currentPlayer != null) {
+                    // startMs==0 说明 tick 循环从未初始化目标（首 tick 前松手，或起播
+                    // duration<=0 时 tick 全部早退），target 仍是 0 值，按 0 提交=跳回片头；
+                    // 落到当前位置，行为等同"没有拖动"
+                    val targetMs = if (timebarSeekStartMs == 0L) {
+                        currentPlayer.currentPosition
+                    } else {
+                        timebarSeekTargetMs
+                    }
+                    currentPlayer.seekTo(targetMs)
+                    onUserSeekListener?.invoke(targetMs)
+                    syncDanmakuPosition(targetMs, forceSeek = true)
                 }
                 if (endHoldPlaybackFreeze()) {
                     resumeDanmaku()

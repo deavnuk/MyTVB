@@ -112,6 +112,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private var currentFragmentIndex = -1
     private var exitTime: Long = 0
     private val exitInterval = 2000L
+
+    /** 进入 CCTV 直播等独立 Activity 前置位；窗口焦点回来后检查焦点是否丢失并兜底恢复。 */
+    private var pendingFocusRestoreAfterExternalReturn = false
     private val focusRestoreAnchors = ArrayDeque<FocusRestoreAnchor>()
     private var lastBackStackEntryCount = 0
     private var pendingFocusRestoreDelayMs = 0L
@@ -447,6 +450,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         AppLog.d("FocusTrace", "onTabSelected index=$index focusedBefore=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
         // CCTV 直播 tab：直接进 Marmot 播放器，不加载频道列表 Fragment（对标参考 StartActivity→LiveActivity）
         if (index == CCTV_TAB_INDEX) {
+            pendingFocusRestoreAfterExternalReturn = true
             MarmotLiveActivity.start(this)
             // 焦点留在 TV 直播按钮（直播返回后焦点仍在该按钮）
             binding.myTabView.focusCurrentTab()
@@ -464,6 +468,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         AppLog.d("FocusTrace", "onTabReselected index=$index focusedBefore=${currentFocus?.javaClass?.simpleName}#${currentFocus?.id}")
         // CCTV 直播 tab 再次点击：重新进入直播（Tab 4 不持有 Fragment，reselect 也要能进直播）
         if (index == CCTV_TAB_INDEX) {
+            pendingFocusRestoreAfterExternalReturn = true
             MarmotLiveActivity.start(this)
             return
         }
@@ -1054,6 +1059,19 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         super.onWindowFocusChanged(hasFocus)
         AppLog.i(TEEN_REST_DIAG_TAG, "onWindowFocusChanged hasFocus=$hasFocus")
         dumpTeenRestOverlayState("onWindowFocusChanged($hasFocus)")
+        // 从 MarmotLiveActivity 返回后系统自动焦点回落并不可靠（独立 Activity，无任何
+        // 恢复回调可挂），窗口焦点回来后若整棵视图树无焦点视图则兜底拉回侧栏当前 tab 按钮；
+        // 焦点仍有时不动，避免改变播放器等其它返回路径的正常回落行为。
+        if (hasFocus && pendingFocusRestoreAfterExternalReturn) {
+            pendingFocusRestoreAfterExternalReturn = false
+            binding.root.post {
+                val focused = currentFocus
+                AppLog.d("FocusTrace", "restoreFocusAfterExternalReturn focused=${focused?.javaClass?.simpleName}#${focused?.id}")
+                if (focused == null || !focused.isShown) {
+                    focusSidebarCurrentTab()
+                }
+            }
+        }
     }
 
     /** 检查青少年模式休息状态：休息中显示遮罩并启动倒计时，否则确保遮罩隐藏。 */

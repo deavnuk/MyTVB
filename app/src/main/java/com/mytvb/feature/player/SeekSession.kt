@@ -127,8 +127,12 @@ class SeekSession(
         if (mode == Mode.HOLD) {
             val player = playerProvider()
             if (player != null && player.isCurrentMediaItemSeekable) {
-                player.seekTo(targetPositionMs)
-                danmakuSync(targetPositionMs)
+                // startMs==0 说明首个 tick 还没跑过初始化（targetPositionMs 仍是起手 0 值）：
+                // 按下后约 200-240ms 内松手正落在这个窗口，按 0 提交=跳回片头。
+                // 用 startHoldSeek 记录的进入位置提交，行为等同"没有拖动"。
+                val targetMs = if (startMs == 0L) holdStartPositionMs else targetPositionMs
+                player.seekTo(targetMs)
+                danmakuSync(targetMs)
             }
         }
         mode = Mode.NONE

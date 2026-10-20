@@ -118,6 +118,9 @@ class MyPlayerSettingView @JvmOverloads constructor(
     private var lastFocusedMainItemPosition = 1
     private var lastFocusedDmItemPosition = 1
 
+    /** 倍速子菜单是否由控制栏"播放速度"按键直入（BACK/选完档位应整体关面板而非回主菜单）。 */
+    private var speedMenuEnteredFromController = false
+
     init {
         LayoutInflater.from(context).inflate(R.layout.my_player_setting_view, this, true)
         recyclerView = findViewById(R.id.recyclerView)
@@ -149,6 +152,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
     fun showHide(show: Boolean) {
         animate().cancel()
         if (!show) {
+            speedMenuEnteredFromController = false
             animate()
                 .translationX(panelWidthPx.toFloat())
                 .alpha(0f)
@@ -202,6 +206,14 @@ class MyPlayerSettingView @JvmOverloads constructor(
             }
 
             adapter.currentMenuKey == ITEM_LIVE_LINE -> {
+                showHide(false)
+                true
+            }
+
+            // 控制栏倍速按钮直入的子菜单：BACK 直接关闭整个面板，不回总设置主菜单
+            // （与直播清晰度/线路同模式）；从主菜单点进来的仍回主菜单。
+            adapter.currentMenuKey == ITEM_PLAYBACK_SPEED && speedMenuEnteredFromController -> {
+                speedMenuEnteredFromController = false
                 showHide(false)
                 true
             }
@@ -373,9 +385,11 @@ class MyPlayerSettingView @JvmOverloads constructor(
     /** 控制栏"播放速度"按键入口：直接打开倍速子菜单（面板未显示时先入场再打开）。 */
     fun showPlaybackSpeedMenu() {
         if (!isShowing()) {
+            speedMenuEnteredFromController = true
             showHide(true)
             post { showPlaybackSpeedSubMenu() }
         } else {
+            speedMenuEnteredFromController = false
             showPlaybackSpeedSubMenu()
         }
     }
@@ -545,7 +559,10 @@ class MyPlayerSettingView @JvmOverloads constructor(
     private fun handleMainMenuClick(itemId: Int) {
         when (itemId) {
             ITEM_VIDEO_QUALITY -> showVideoQualityMenu()
-            ITEM_PLAYBACK_SPEED -> showPlaybackSpeedSubMenu()
+            ITEM_PLAYBACK_SPEED -> {
+                speedMenuEnteredFromController = false
+                showPlaybackSpeedSubMenu()
+            }
             ITEM_AFTER_PLAY -> showAfterPlayMenu()
             ITEM_SUBTITLE -> showSubtitles()
             ITEM_VIDEO_CODEC -> showVideoCodecMenu()
@@ -595,7 +612,12 @@ class MyPlayerSettingView @JvmOverloads constructor(
                 updateState { it.copy(currentSpeed = selected) }
                 onPlayerSettingChange?.onPlaybackSpeedChange(selected)
                 onPlayerSettingInnerChange?.onPlaybackSpeedChange(selected)
-                goBackToMainMenu()
+                if (speedMenuEnteredFromController) {
+                    speedMenuEnteredFromController = false
+                    showHide(false)
+                } else {
+                    goBackToMainMenu()
+                }
             }
 
             adapter.currentMenuKey == ITEM_SUBTITLE && (itemId == -1 || itemId in panelState.subtitles.indices) -> {

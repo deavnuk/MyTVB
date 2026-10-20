@@ -972,6 +972,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             it.addListener(playerListener)
             it.addAnalyticsListener(playerPerfListener)
         }
+        // 首帧看门狗到点时读实时位置：lambda 每次读当前字段，release 置 null 后安全返回 0（回退快照）
+        viewModel.livePlaybackPositionProvider = { player?.currentPosition ?: 0L }
         playerView.setPlayer(player)
         // 公益广告锁死模式：关闭控制器（不显示暂停/进度条/设置面板），隐藏各种按钮，强制不循环
         if (psasLocked) {
@@ -1162,6 +1164,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             override fun onPlaybackSpeedClick() { playerView.showPlaybackSpeedSettingView() }
         })
         playerView.onUserSeekListener = { positionMs ->
+            // 起播期用户 seek 顺延首帧看门狗计时，避免 seek 后瞬间开火换线作废刚提交的进度
+            viewModel.extendFirstFrameWatchdogForUserSeek()
             viewModel.sponsorUserSeek(positionMs)
         }
         playerView.onChapterPanelRequestListener = { showChapterDialog() }
@@ -2050,7 +2054,11 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     private fun recoverFromPlaybackStall(positionMs: Long, stalledMs: Long) {
         val currentPlayer = player ?: return
         if (stalledMs > 3000L) {
-            currentPlayer.seekTo(positionMs + stalledMs)
+            // 前抛目标钳到片尾安全余量内：越过 duration 会被 media3 判 STATE_ENDED，
+            // 走"播完"分发（连播/推荐面板），表现为卡顿自救后进度从 0 开始
+            val durationMs = currentPlayer.duration
+            val upperBound = if (durationMs > 0L) SeekSession.seekUpperBoundMs(durationMs) else Long.MAX_VALUE
+            currentPlayer.seekTo((positionMs + stalledMs).coerceIn(0L, upperBound))
         }
     }
 

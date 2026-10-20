@@ -1300,6 +1300,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
         }
         applyStored(KEY_LIVE_ENTRY)
         applyStored(KEY_CCTV_LIVE_ENTRY)
+        applyStored(KEY_CCTV_VOD_ENTRY)
         applyStored(KEY_HOME_FEED_SOURCE)
         applyStored(KEY_HOT_FEED_SOURCE)
         // 旧版本存储值兜底：不属于当前选项集时回落默认

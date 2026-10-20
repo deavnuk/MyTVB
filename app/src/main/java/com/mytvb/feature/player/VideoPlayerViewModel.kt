@@ -784,6 +784,11 @@ class VideoPlayerViewModel(
     // 首帧看门狗：每次发布 PlaybackRequest 后 arm，READY/首帧/错误时 disarm；
     // 超时说明起播线路卡死（stall 检测不覆盖 BUFFERING 态），提前触发换线救援。
     private var firstFrameWatchdogJob: Job? = null
+    // 武装时刻的起播位置快照：仅当宿主实时位置不可用（未挂 provider 或 player 未起播=0）时回退使用。
+    private var armedWatchdogResumePositionMs: Long = 0L
+    // 宿主提供的实时播放位置：看门狗到点时读取，避免用武装时刻快照作废用户起播期的 seek
+    // （新视频 seekPositionMs=0，用户已快进到中段时按快照换线重建=从头播放）。
+    var livePlaybackPositionProvider: (() -> Long)? = null
     // 本播放会话（当前 MediaSource）是否已记过 READY 健康分；同时用于区分起播与播放中途 rebuffer。
     private var cdnSessionReadyRecorded: Boolean = false
     private var preloadedPlayback: PreloadedPlayback? = null
@@ -3131,19 +3136,40 @@ class VideoPlayerViewModel(
         // 暂停态请求不会自然出首帧，监控无意义且换线 dispatch 会强制 playWhenReady=true，
         // 把暂停中的视频误播起来。
         if (!request.playWhenReady) return
-        val resumePositionMs = request.seekPositionMs
-        firstFrameWatchdogJob = viewModelScope.launch {
-            delay(FIRST_FRAME_WATCHDOG_TIMEOUT_MS)
-            AppLog.w(
-                "PlaybackCdn",
-                "cdn_health first_frame_timeout watchdog fired resumeMs=$resumePositionMs " +
-                    "cdnStates=${currentCdnStates.size}"
-            )
-            if (!fallbackController.handleFirstFrameTimeout(resumePositionMs)) {
-                // 换线与刷新都未派发（候选/重试耗尽）：放回原链，等 read 超时错误兜底。
-                AppLog.w("PlaybackCdn", "first_frame_timeout: no fallback dispatched, wait for error chain")
-            }
+        armedWatchdogResumePositionMs = request.seekPositionMs
+        firstFrameWatchdogJob = viewModelScope.launch { fireFirstFrameWatchdogTimeout() }
+    }
+
+    /**
+     * 看门狗到点：优先取宿主实时位置。武装后 2.5s 内用户可能已主动 seek（新视频快进跳片头），
+     * 武装时刻快照（新视频=0）会把用户 seek 的位置整体作废——换线重建从 0 起播，表现为
+     * "调进度时视频突然从头开始"。实时位置 >0 时以实时为准，并带双值日志便于复现判别。
+     */
+    private suspend fun fireFirstFrameWatchdogTimeout() {
+        delay(FIRST_FRAME_WATCHDOG_TIMEOUT_MS)
+        val liveMs = livePlaybackPositionProvider?.invoke() ?: 0L
+        val resumePositionMs = if (liveMs > 0L) liveMs else armedWatchdogResumePositionMs
+        AppLog.w(
+            "PlaybackCdn",
+            "cdn_health first_frame_timeout watchdog fired armedMs=$armedWatchdogResumePositionMs " +
+                "liveMs=$liveMs resumeMs=$resumePositionMs cdnStates=${currentCdnStates.size}"
+        )
+        if (!fallbackController.handleFirstFrameTimeout(resumePositionMs)) {
+            // 换线与刷新都未派发（候选/重试耗尽）：放回原链，等 read 超时错误兜底。
+            AppLog.w("PlaybackCdn", "first_frame_timeout: no fallback dispatched, wait for error chain")
         }
+    }
+
+    /**
+     * 用户在起播期主动 seek：顺延看门狗计时，给 seek 后的重新缓冲留满 2.5s，
+     * 避免剩余的几十毫秒计时在 seek 后瞬间开火换线、作废刚提交的 seek。
+     * 仅在武装中生效（READY 后 job 已 disarm，调用是 no-op）。
+     */
+    fun extendFirstFrameWatchdogForUserSeek() {
+        val job = firstFrameWatchdogJob ?: return
+        job.cancel()
+        firstFrameWatchdogJob = viewModelScope.launch { fireFirstFrameWatchdogTimeout() }
+        AppLog.d("PlaybackCdn", "first_frame_watchdog extended for user seek")
     }
 
     private fun disarmFirstFrameWatchdog() {

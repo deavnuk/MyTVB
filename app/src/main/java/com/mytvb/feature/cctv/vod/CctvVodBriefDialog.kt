@@ -58,6 +58,13 @@ class CctvVodBriefDialog(
         setOnShowListener {
             binding.buttonClose.post { binding.buttonClose.requestFocus() }
         }
+        // 项目开了 enableOnBackInvokedCallback：BACK 走 OnBackInvoked 通道，
+        // 必须注册到 ComponentDialog 自带 dispatcher，否则弹窗关不掉（OwnerDetailDialog 同款）
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                dismiss()
+            }
+        })
     }
 
     private fun bindContent() {

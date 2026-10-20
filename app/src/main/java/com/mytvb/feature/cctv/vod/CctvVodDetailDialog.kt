@@ -18,6 +18,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mytvb.R
 import com.mytvb.core.common.log.AppLog
+import com.mytvb.core.ui.base.AppToast
 import com.mytvb.core.ui.base.DialogWindowFit
 import com.mytvb.core.ui.image.ImageLoader
 import com.mytvb.databinding.DialogCctvVodDetailBinding
@@ -37,7 +38,9 @@ class CctvVodDetailDialog(
     context: Context,
     private val album: CctvAlbum,
     private val api: CctvVodApi,
-    private val onPlayEpisode: (CctvEpisode, String) -> Unit
+    private val categoryCode: String,
+    private val onPlayEpisode: (CctvEpisode, String) -> Unit,
+    private val onFavoriteChanged: () -> Unit = {}
 ) : AppCompatDialog(context, R.style.DialogTheme) {
 
     private lateinit var binding: DialogCctvVodDetailBinding
@@ -82,6 +85,19 @@ class CctvVodDetailDialog(
         binding.buttonDetail.setOnClickListener {
             CctvVodBriefDialog.show(context, album)
         }
+        binding.buttonFavorite.setOnClickListener {
+            val favorite = CctvVodFavoriteStore.toggle(context, album, categoryCode)
+            updateFavoriteButton()
+            AppToast.show(
+                context,
+                context.getString(
+                    if (favorite) R.string.cctv_vod_favorite_added
+                    else R.string.cctv_vod_favorite_removed
+                )
+            )
+            onFavoriteChanged()
+        }
+        updateFavoriteButton()
         // 简介区高度由固定高卡片的剩余空间决定，而 maxLines 是固定值：
         // 两者对不上时多出的那行被裁掉，省略号正好画在看不见的那一行。
         // 弹窗高度在 show 之后才确定，用布局回调按实际高度校正行数。
@@ -101,6 +117,21 @@ class CctvVodDetailDialog(
         binding.recyclerView.layoutManager = GridLayoutManager(context, EPISODE_SPAN)
         binding.recyclerView.adapter = episodeAdapter
         binding.recyclerView.itemAnimator = null
+    }
+
+    /** 收藏按钮文案随状态切换：未收藏「收藏」，已收藏「取消收藏」；已收藏用强调色区分。 */
+    private fun updateFavoriteButton() {
+        val favorite = CctvVodFavoriteStore.isFavorite(context, album.id)
+        binding.buttonFavorite.text = context.getString(
+            if (favorite) R.string.cctv_vod_unfavorite else R.string.cctv_vod_favorite
+        )
+        binding.buttonFavorite.setTextColor(
+            if (favorite) {
+                ContextCompat.getColor(context, R.color.colorAccent)
+            } else {
+                ContextCompat.getColor(context, R.color.textColor)
+            }
+        )
     }
 
     /**
@@ -268,9 +299,18 @@ class CctvVodDetailDialog(
             context: Context,
             album: CctvAlbum,
             api: CctvVodApi,
-            onPlayEpisode: (CctvEpisode, String) -> Unit
+            categoryCode: String,
+            onPlayEpisode: (CctvEpisode, String) -> Unit,
+            onFavoriteChanged: () -> Unit = {}
         ) {
-            CctvVodDetailDialog(context, album, api, onPlayEpisode).show()
+            CctvVodDetailDialog(
+                context = context,
+                album = album,
+                api = api,
+                categoryCode = categoryCode,
+                onPlayEpisode = onPlayEpisode,
+                onFavoriteChanged = onFavoriteChanged
+            ).show()
         }
     }
 }

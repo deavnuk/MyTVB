@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.tabs.TabLayout
 import com.mytvb.R
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.core.ui.base.BaseFragment
@@ -26,6 +27,8 @@ import com.mytvb.core.ui.decoration.GridSpacingItemDecoration
 import com.mytvb.core.ui.focus.tv.GridTvFocusStrategy
 import com.mytvb.core.ui.focus.tv.TvListFocusController
 import com.mytvb.core.ui.layout.WrapContentGridLayoutManager
+import com.mytvb.core.ui.tab.enableDirectTabNavigation
+import com.mytvb.core.ui.tab.focusSelectedTab
 import com.mytvb.databinding.FragmentCctvVodBinding
 import com.mytvb.ui.activity.CctvVodPlayerActivity
 import com.mytvb.ui.fragment.main.MainNavigationViewModel
@@ -62,10 +65,21 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
     private var filterYear = ""
     private var filterLetter = ""
 
+    /** 卡片数据源：片库走接口分页，收藏走本地存储（同样受分类/筛选控制）。 */
+    private enum class Source { LIBRARY, FAVORITE }
+
+    private var source = Source.LIBRARY
+
     private var page = 1
     private var loading = false
     private var endReached = false
     private var loadJob: Job? = null
+
+    /** 片库已加载的完整数据：搜索过滤视图基于它构建，清词后恢复全量展示。 */
+    private val libraryAlbums = ArrayList<CctvAlbum>()
+
+    /** 搜索关键词：非空时片库/收藏列表按标题过滤（片库仅过滤已加载部分）。 */
+    private var searchQuery = ""
 
     /** 最近一次进播放页的专辑 id：从播放页返回时把焦点放回那张卡片。 */
     private var lastLaunchedAlbumId: String? = null
@@ -85,7 +99,7 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
 
     override fun initView() {
         adapter = CctvVodAdapter(onItemClick = ::openAlbumDetail)
-        adapter.bindTopEdgeUp(::focusFilterRow)
+        adapter.bindTopEdgeUp(::focusSourceTabs)
         binding.recyclerView.layoutManager = WrapContentGridLayoutManager(requireContext(), spanCount)
         binding.recyclerView.adapter = adapter
         binding.recyclerView.itemAnimator = null
@@ -119,6 +133,45 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
         installTvFocusController()
         buildCategoryRow()
         buildFilterRow()
+        buildSourceTabs()
+        setupSearchButton()
+        updateLetterFilterAvailability()
+    }
+
+    private fun setupSearchButton() {
+        binding.buttonSearch.setOnClickListener {
+            CctvVodSearchDialog.show(requireContext(), searchQuery) { text ->
+                onSearchQueryChanged(text)
+            }
+        }
+        binding.buttonSearch.setOnKeyListener { _, keyCode, event ->
+            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN -> focusCategoryRow()
+                KeyEvent.KEYCODE_DPAD_UP -> true
+                else -> false
+            }
+        }
+    }
+
+    /** 搜索词变化：更新按钮文案并按当前数据源重新过滤。 */
+    private fun onSearchQueryChanged(text: String) {
+        val next = text.trim()
+        if (next == searchQuery) return
+        searchQuery = next
+        updateSearchButton()
+        when (source) {
+            Source.FAVORITE -> showFavorites()
+            Source.LIBRARY -> refreshLibraryView()
+        }
+    }
+
+    private fun updateSearchButton() {
+        binding.buttonSearch.text = if (searchQuery.isBlank()) {
+            getString(R.string.cctv_vod_search)
+        } else {
+            getString(R.string.cctv_vod_search_keyword_format, searchQuery)
+        }
     }
 
     private fun installTvFocusController() {
@@ -166,6 +219,65 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
         tvFocusController?.release()
         tvFocusController = null
         super.onDestroyView()
+    }
+
+    // ---------------------------------------------------------------- 片库 / 收藏
+
+    private fun buildSourceTabs() {
+        binding.tabSource.addTab(
+            binding.tabSource.newTab().setText(R.string.cctv_vod_source_library)
+        )
+        binding.tabSource.addTab(
+            binding.tabSource.newTab().setText(R.string.cctv_vod_source_favorite)
+        )
+        binding.tabSource.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                val next = if (tab.position == 0) Source.LIBRARY else Source.FAVORITE
+                if (next == source) return
+                source = next
+                onSourceChanged()
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+            override fun onTabReselected(tab: TabLayout.Tab) = Unit
+        })
+        binding.tabSource.enableDirectTabNavigation(
+            onNavigateDown = {
+                focusPrimaryCard()
+                true
+            },
+            onNavigateUp = { focusFilterRow() },
+            // 只有两个 tab，左右越界一律消费，避免焦点被几何搜索送去别处
+            onEdgeLeft = { true },
+            onEdgeRight = { true }
+        )
+    }
+
+    private fun onSourceChanged() {
+        // 首字母筛选依赖接口数据（本地没有中文转拼音），切到收藏时清掉，避免把列表过滤空
+        if (source == Source.FAVORITE && filterLetter.isNotBlank()) {
+            filterLetter = ""
+            updateFilterLabels()
+        }
+        updateLetterFilterAvailability()
+        binding.textEmpty.text = getString(
+            if (source == Source.FAVORITE) {
+                R.string.cctv_vod_favorite_empty
+            } else {
+                R.string.cctv_vod_empty
+            }
+        )
+        reload()
+    }
+
+    /** 收藏数据只有 album.genre/area/year 原值，首字母无从判断，收藏模式下置灰该筛选项。 */
+    private fun updateLetterFilterAvailability() {
+        val enabled = source == Source.LIBRARY
+        filterChips.getOrNull(LETTER_FILTER_INDEX)?.let { chip ->
+            chip.isEnabled = enabled
+            chip.isFocusable = enabled
+            chip.alpha = if (enabled) 1f else DISABLED_ALPHA
+        }
     }
 
     // ---------------------------------------------------------------- 分类 / 筛选
@@ -263,9 +375,9 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
         if (event.action != KeyEvent.ACTION_DOWN) return false
         return when (keyCode) {
             KeyEvent.KEYCODE_DPAD_DOWN ->
-                if (categoryRow) focusFilterRow() else focusPrimaryCard()
+                if (categoryRow) focusFilterRow() else focusSourceTabs()
             KeyEvent.KEYCODE_DPAD_UP ->
-                if (categoryRow) true else focusCategoryRow()
+                if (categoryRow) focusSearchButton() else focusCategoryRow()
             else -> false
         }
     }
@@ -329,14 +441,88 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
         loading = false
         page = 1
         endReached = false
+        libraryAlbums.clear()
         adapter.clear()
         adapter.notifyDataSetChanged()
         binding.textEmpty.visibility = View.GONE
         binding.recyclerView.scrollToPosition(0)
+        if (source == Source.FAVORITE) {
+            showFavorites()
+            return
+        }
         loadPage()
     }
 
+    /** 收藏列表：本地读取 → 按当前分类 + 筛选 + 搜索词过滤 → 一次性整体替换（不分页）。 */
+    private fun showFavorites() {
+        if (!isAdded) return
+        binding.loadingProgress.visibility = View.GONE
+        endReached = true
+        val albums = CctvVodFavoriteStore.list(requireContext(), currentCategory.code)
+            .map { it.album }
+            .filter { matchesFilters(it) }
+        // 必须走 setDataDeduplicated 整体替换：clear + addData(空) 在空列表时 addData
+        // 直接 return 不通知，取消收藏后卡片会残留在列表里。
+        // 空状态与列表在同一回调里更新，避免"卡片还在、空提示已出现"的中间帧
+        adapter.setDataDeduplicated(albums) {
+            if (!isAdded) return@setDataDeduplicated
+            tvFocusController?.onDataChanged()
+            binding.textEmpty.visibility = if (albums.isEmpty()) View.VISIBLE else View.GONE
+            if (albums.isEmpty()) {
+                binding.textEmpty.text = getString(
+                    if (searchQuery.isNotBlank()) R.string.cctv_vod_search_empty
+                    else R.string.cctv_vod_favorite_empty
+                )
+            }
+        }
+    }
+
+    private fun matchesFilters(album: CctvAlbum): Boolean {
+        if (filterGenre.isNotBlank() && album.genre != filterGenre) return false
+        if (filterArea.isNotBlank() && album.area != filterArea) return false
+        if (filterYear.isNotBlank() && album.year != filterYear) return false
+        return matchesSearch(album)
+    }
+
+    /** 搜索匹配：中文关键词按标题原文，字母关键词兼容拼音全拼（zhengtu → 《征途》）。 */
+    private fun matchesSearch(album: CctvAlbum): Boolean {
+        val query = searchQuery.trim()
+        if (query.isBlank()) return true
+        if (album.title.contains(query, ignoreCase = true)) return true
+        if (query[0].code < 128) {
+            val pinyin = CctvVodPinyinMatcher.pinyinOf(album.title) ?: return false
+            if (pinyin.contains(query.lowercase())) return true
+        }
+        return false
+    }
+
+    /**
+     * 片库过滤视图：搜索词非空时展示 libraryAlbums 的搜索匹配子集，清词后恢复全量。
+     * 翻页新数据始终先入 libraryAlbums，搜索态下过滤视图不丢词。
+     */
+    private fun refreshLibraryView() {
+        val visible = if (searchQuery.isBlank()) {
+            libraryAlbums
+        } else {
+            libraryAlbums.filter { matchesSearch(it) }
+        }
+        adapter.setDataDeduplicated(visible) {
+            if (!isAdded) return@setDataDeduplicated
+            tvFocusController?.onDataChanged()
+            binding.textEmpty.visibility = if (visible.isEmpty()) View.VISIBLE else View.GONE
+            if (visible.isEmpty()) {
+                binding.textEmpty.text = getString(
+                    if (searchQuery.isNotBlank()) R.string.cctv_vod_search_empty
+                    else R.string.cctv_vod_empty
+                )
+            }
+        }
+    }
+
     private fun loadPage() {
+        if (source != Source.LIBRARY) return
+        // 搜索态下列表是过滤子集，触底判定失真；先清词再继续翻页
+        if (searchQuery.isNotBlank()) return
         if (loading || endReached || !isAdded) return
         loading = true
         if (adapter.contentCount() == 0) {
@@ -360,9 +546,14 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
             if (albums.isEmpty()) {
                 endReached = true
             } else {
-                adapter.addData(albums)
+                libraryAlbums.addAll(albums)
                 page = targetPage + 1
-                tvFocusController?.onDataChanged()
+                if (searchQuery.isNotBlank()) {
+                    refreshLibraryView()
+                } else {
+                    adapter.addData(albums)
+                    tvFocusController?.onDataChanged()
+                }
             }
             binding.textEmpty.visibility =
                 if (adapter.contentCount() == 0 && endReached) View.VISIBLE else View.GONE
@@ -374,6 +565,7 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
             context = requireContext(),
             album = album,
             api = api,
+            categoryCode = currentCategory.code,
             onPlayEpisode = { episode, title ->
                 lastLaunchedAlbumId = album.id
                 startActivity(
@@ -385,6 +577,10 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
                         episodeMode = album.episodeMode
                     )
                 )
+            },
+            onFavoriteChanged = {
+                // 收藏列表可见时刷新：取消收藏的条目立刻消失
+                if (source == Source.FAVORITE) showFavorites()
             }
         )
     }
@@ -399,8 +595,17 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
     private fun focusFilterRow(): Boolean {
         val target = filterChips.firstOrNull { it.isSelected }
             ?: filterChips.firstOrNull()
-            ?: return focusPrimaryCard()
+            ?: return focusSourceTabs()
         return target.requestFocus()
+    }
+
+    /** 焦点落到「片库 / 收藏」当前选中的 tab 上。 */
+    private fun focusSourceTabs(): Boolean = binding.tabSource.focusSelectedTab()
+
+    /** 焦点落到标题行右侧的搜索按钮。 */
+    private fun focusSearchButton(): Boolean {
+        binding.buttonSearch.requestFocus()
+        return true
     }
 
     private fun focusPrimaryCard(): Boolean {
@@ -475,6 +680,10 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
         private const val LOAD_MORE_THRESHOLD = 4
         private const val TAB_INDEX = 5
         private const val TAG = "CctvVodFragment"
+
+        /** 筛选行里「首字母」chip 的位置（类型/地区/年份/首字母）。 */
+        private const val LETTER_FILTER_INDEX = 3
+        private const val DISABLED_ALPHA = 0.4f
 
         fun newInstance(): CctvVodFragment = CctvVodFragment()
     }

@@ -157,7 +157,7 @@ object UpdateFlowDialog {
         listOf(context.getString(cancelTextRes) to { dialog.dismiss() }, context.getString(R.string.update_download_action) to {
             launchDownload = true
             dialog.dismiss()
-            startDownloadApk(context, releaseInfo.apkUrl, listener)
+            startDownloadApk(context, releaseInfo, listener)
         }).forEach { (text, action) ->
             val button = ScaledTextView(context).apply {
                 this.text = text
@@ -226,18 +226,26 @@ object UpdateFlowDialog {
 
     fun startDownloadApk(
         context: Context,
-        apkUrl: String,
+        releaseInfo: ApkUpdater.ReleaseInfo,
         listener: Listener? = null,
     ) {
         if (isDownloading) {
             AppToast.show(context, context.getString(R.string.update_in_progress_toast), Toast.LENGTH_SHORT)
             return
         }
-        isDownloading = true
 
         // 下载可能转后台跨页面存活：网络/安装/Toast 一律走 applicationContext，
         // 避免持有已销毁的宿主 Activity
         val appContext = context.applicationContext
+
+        // 同一会话内已有同版本完整包（如下载完但安装界面被关掉没装）：
+        // 直接复用弹安装界面，不重新下载。放在 isDownloading 守卫之后，
+        // 下载进行中先挡重复入口，不会与后台 job 完成时的安装重叠
+        ApkUpdater.findDownloadedApk(appContext, releaseInfo.versionName)?.let {
+            ApkUpdater.installApk(appContext, it)
+            return
+        }
+        isDownloading = true
 
         val resources = context.resources
         val px40 = resources.getDimensionPixelSize(R.dimen.px40)
@@ -360,7 +368,7 @@ object UpdateFlowDialog {
         downloadJob = downloadScope.launch {
             try {
                 val apkFile = withContext(Dispatchers.IO) {
-                    ApkUpdater.downloadApkToCache(appContext, apkUrl) { progress ->
+                    ApkUpdater.downloadApkToCache(appContext, releaseInfo.apkUrl) { progress ->
                         progressText.post {
                             if (!dialog.isShowing) return@post
                             when (progress) {

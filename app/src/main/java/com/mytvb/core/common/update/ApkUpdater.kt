@@ -192,9 +192,33 @@ object ApkUpdater {
     }
 
     /**
-     * 启动时清理上一次会话遗留的安装包。下载→拉起安装器都在同一次会话内完成，
-     * 没有任何跨进程复用残留包的路径，残留在磁盘上只会白占缓存空间（几十 MB），
-     * 因此启动时整目录删除即可；下次下载会在同目录重建，不影响更新流程。
+     * 查找当前会话内已下载完成、且版本号与目标版本一致的本地安装包（供复用免重下）。
+     * 下载完成才会 rename 为 update.apk（中断只留 .part 文件），存在即完整；
+     * 再用 PackageManager 解析包内 versionName 比对，防止旧版本残留包被误用。
+     * 版本比对走 parseVersion 归一化：GitHub tag 带 v 前缀而 APK 内 versionName 不带，
+     * 裸字符串比对永远不命中。
+     */
+    fun findDownloadedApk(context: Context, versionName: String): File? {
+        val apk = File(File(context.cacheDir, UPDATE_DIR_NAME), "update.apk")
+        if (!apk.isFile || apk.length() == 0L) return null
+        val remote = parseVersion(versionName) ?: return null
+        val info = runCatching {
+            context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+        }.getOrNull()
+        val cached = info?.versionName?.let { parseVersion(it) }
+        if (cached != null && cached == remote) {
+            AppLog.i(TAG, "findDownloadedApk: reuse downloaded apk cached=${info.versionName} want=$versionName")
+            return apk
+        }
+        AppLog.i(TAG, "findDownloadedApk: no match, cached=${info?.versionName} want=$versionName")
+        return null
+    }
+
+    /**
+     * 启动时清理上一次会话遗留的安装包。复用（findDownloadedApk）只在同一会话内
+     * 发生（如安装界面被关掉后再次点下载），跨会话没有复用路径，残留包在磁盘上
+     * 只会白占缓存空间（几十 MB），因此启动时整目录删除即可；下次下载会在同目录
+     * 重建，不影响更新流程。
      */
     fun cleanupStaleDownload(context: Context) {
         Thread {

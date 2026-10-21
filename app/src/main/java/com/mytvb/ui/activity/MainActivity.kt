@@ -717,7 +717,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             UpdateFlowDialog.showConfirmDialog(
                 context = this@MainActivity,
                 releaseInfo = releaseInfo,
-                scope = lifecycleScope,
                 cancelTextRes = R.string.update_later,
                 onDismissedWithoutDownload = {
                     appSettings.putStringAsync(ApkUpdater.KEY_IGNORED_VERSION, releaseInfo.versionName)

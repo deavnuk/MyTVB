@@ -403,6 +403,9 @@
     <string name="update_later">Later</string>
     <string name="session_expired_relogin">Login expired, please sign in again</string>
     <string name="update_downloading_title">Downloading update</string>
+    <string name="update_download_background">Download in background</string>
+    <string name="update_background_toast">Downloading in background. Installation will start automatically when ready</string>
+    <string name="update_in_progress_toast">Update package is downloading in background</string>
     <string name="connecting">Connecting…</string>
     <string name="retrying_format">Connection failed, retrying (%1$d/%2$d)…</string>
     <string name="net_timeout_toast">Network timed out, check the connection and retry</string>

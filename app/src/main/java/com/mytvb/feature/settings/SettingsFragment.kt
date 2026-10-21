@@ -1154,7 +1154,6 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
                     UpdateFlowDialog.showConfirmDialog(
                         context = requireContext(),
                         releaseInfo = releaseInfo,
-                        scope = updateScope,
                         listener = UpdateFlowDialog.Listener {
                             updateCheckState.value = UpdateCheckState.Idle
                             updateUpdateEntry()
@@ -1189,7 +1188,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
 
     override fun onDestroyView() {
         super.onDestroyView()
-        // 下载 job 挂在 updateScope 上（UpdateFlowDialog），取消 scope 即连带取消
+        // updateScope 只承载检查更新请求；下载 job 已归 UpdateFlowDialog 自有应用级
+        // scope，离开设置页不中断下载（进度弹窗转后台同理）
         updateScope.cancel()
     }
 

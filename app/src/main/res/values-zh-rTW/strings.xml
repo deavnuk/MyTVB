@@ -403,6 +403,9 @@
     <string name="update_later">稍後</string>
     <string name="session_expired_relogin">登入已過期，請重新登入</string>
     <string name="update_downloading_title">正在下載更新</string>
+    <string name="update_download_background">背景下載</string>
+    <string name="update_background_toast">已轉入背景下載，完成後將自動彈出安裝畫面</string>
+    <string name="update_in_progress_toast">正在背景下載更新包</string>
     <string name="connecting">連線中…</string>
     <string name="retrying_format">連線失敗，正在重試（%1$d/%2$d）…</string>
     <string name="net_timeout_toast">網路連線逾時，請檢查網路後重試</string>

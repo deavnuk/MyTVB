@@ -565,7 +565,8 @@ class SearchNewFragment :
     }
 
     /**
-     * BACK 分层（对齐主页）：结果面板（非外部带词进入）→ 退回搜索面板；
+     * BACK 分层（对齐主页 内容→二级tab→侧栏）：
+     * 结果面板内容区 → 先聚焦顶部结果分类 tab；已在分类 tab 上 → 退回搜索面板；
      * 搜索面板/键盘 → 回主边栏当前 tab；焦点已在本页外 → false 交双击退出。
      * 原方法无任何调用方（死代码），2.1.13 后接入 OnBackPressedHandler 生效。
      */
@@ -577,6 +578,9 @@ class SearchNewFragment :
             return false
         }
         if (isResultPanelVisible && arguments?.containsKey(ARG_KEYWORD) != true) {
+            if (!binding.tabSearchResult.hasFocus() && focusSelectedResultTab()) {
+                return true
+            }
             showSearchPanel()
             return true
         }

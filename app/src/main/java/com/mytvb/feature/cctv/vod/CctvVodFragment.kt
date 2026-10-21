@@ -656,10 +656,15 @@ class CctvVodFragment : BaseFragment<FragmentCctvVodBinding>(),
 
     override fun onBackPressed(): Boolean {
         val focused = view?.findFocus() ?: return false
-        if (isInsideRecyclerView(focused)) {
-            return focusCategoryRow()
+        // BACK 分层（用户 2.1.14 反馈）：内容区/子分类行/筛选行 → 先回「片库/收藏」
+        // 主 tab；已在主 tab 上 → 回侧栏。此前内容区直接落子分类（如「电视剧」）太深。
+        if (isInsideRecyclerView(focused) ||
+            categoryChips.any { it === focused } ||
+            filterChips.any { it === focused }
+        ) {
+            return focusSourceTabs() || mainActivity?.focusSidebarCurrentTab() == true
         }
-        if (categoryChips.any { it === focused } || filterChips.any { it === focused }) {
+        if (binding.tabSource.hasFocus()) {
             return mainActivity?.focusSidebarCurrentTab() == true
         }
         return false

@@ -1169,6 +1169,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             viewModel.sponsorUserSeek(positionMs)
         }
         playerView.onChapterPanelRequestListener = { showChapterDialog() }
+        playerView.onEpisodePanelRequestListener = { showChooseEpisodeDialog() }
         renderControllerChrome(View.GONE)
     }
 
@@ -1195,6 +1196,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                         "setting=${playerView.isSettingViewShowing()} " +
                         "panel=${uiCoordinator.hasVisiblePanel()} " +
                         "controller=${playerView.isControllerFullyVisible()} " +
+                        "controllerPartial=${playerView.isControllerPartiallyVisible()} " +
                         "ended=${player?.playbackState == Player.STATE_ENDED}"
                 )
                 uiCoordinator.handleBackPress(
@@ -1209,7 +1211,10 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                         hideNextPreview()
                         playbackEndPanelController.show()
                     },
-                    isControllerFullyVisible = playerView.isControllerFullyVisible(),
+                    // 部分可见（仅进度条/淡出动画中）时 BACK 也要先收控制层：
+                    // 否则一旦进度条卡在部分可见态，BACK 会穿透成退出播放器
+                    isControllerFullyVisible = playerView.isControllerFullyVisible() ||
+                        playerView.isControllerPartiallyVisible(),
                     hideController = { playerView.hideController() },
                     hidePanel = { hideContentPanel() },
                     exitPlayer = {

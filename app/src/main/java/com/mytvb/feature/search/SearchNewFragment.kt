@@ -31,6 +31,8 @@ import com.mytvb.model.search.SearchVideoOrder
 import com.mytvb.ui.activity.LivePlayerActivity
 import com.mytvb.core.common.content.ContentFilter
 import com.mytvb.core.ui.base.BaseFragment
+import com.mytvb.core.ui.base.OnBackPressedHandler
+import com.mytvb.ui.activity.MainActivity
 import com.mytvb.ui.fragment.main.MainTabFocusTarget
 import com.mytvb.feature.detail.UserSpaceFragment
 import com.mytvb.feature.series.SeriesDetailFragment
@@ -56,7 +58,8 @@ import com.mytvb.core.ui.base.AppToast
 class SearchNewFragment :
     BaseFragment<FragmentSearchNewBinding>(),
     MainTabFocusTarget,
-    KeyboardView.KeySelectListener {
+    KeyboardView.KeySelectListener,
+    OnBackPressedHandler {
 
     private val viewModel: SearchViewModel by viewModel()
     private lateinit var hotSearchAdapter: HotSearchAdapter
@@ -561,15 +564,23 @@ class SearchNewFragment :
         }
     }
 
-    fun onBackPressed(): Boolean {
-        if (isResultPanelVisible) {
-            if (arguments?.containsKey(ARG_KEYWORD) == true) {
-                return false
-            }
+    /**
+     * BACK 分层（对齐主页）：结果面板（非外部带词进入）→ 退回搜索面板；
+     * 搜索面板/键盘 → 回主边栏当前 tab；焦点已在本页外 → false 交双击退出。
+     * 原方法无任何调用方（死代码），2.1.13 后接入 OnBackPressedHandler 生效。
+     */
+    override fun onBackPressed(): Boolean {
+        if (view == null) {
+            return false
+        }
+        if (!binding.root.hasFocus()) {
+            return false
+        }
+        if (isResultPanelVisible && arguments?.containsKey(ARG_KEYWORD) != true) {
             showSearchPanel()
             return true
         }
-        return false
+        return (activity as? MainActivity)?.focusSidebarCurrentTab() == true
     }
 
     private fun loadRecentSearches() {

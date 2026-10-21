@@ -20,6 +20,7 @@ import com.mytvb.model.user.FollowingModel
 import com.mytvb.model.video.VideoModel
 import com.mytvb.network.session.SessionStateRepository
 import com.mytvb.core.ui.base.BaseFragment
+import com.mytvb.core.ui.base.OnBackPressedHandler
 import com.mytvb.core.ui.base.RecyclerViewPoolPrewarmer
 import com.mytvb.core.ui.base.VideoRecyclerViewTuning
 import com.mytvb.core.ui.base.adaptiveSpanCount
@@ -48,7 +49,7 @@ import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
-class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarget, com.mytvb.ui.activity.MainActivity.OnVideoBlockedListener {
+class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarget, OnBackPressedHandler, com.mytvb.ui.activity.MainActivity.OnVideoBlockedListener {
     private enum class ContentFocusTarget {
         LEFT_UP_LIST,
         RIGHT_VIDEO_LIST
@@ -716,6 +717,24 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
 
     override fun focusEntryFromMainTab(): Boolean {
         return focusEntryFromMainTab(anchorView = null, preferSpatialEntry = false)
+    }
+
+    /**
+     * BACK 分层（对齐主页 内容→二级导航→侧栏）：
+     * 视频网格 → 左侧 UP 列表选中项 → 主边栏当前 tab；
+     * 焦点已在本页外（如侧栏）→ 返回 false 交给 MainActivity 双击退出。
+     */
+    override fun onBackPressed(): Boolean {
+        if (view == null) {
+            return false
+        }
+        if (!binding.root.hasFocus()) {
+            return false
+        }
+        if (binding.recyclerViewRight.hasFocus() && focusSelectedUpItem()) {
+            return true
+        }
+        return (activity as? MainActivity)?.focusSidebarCurrentTab() == true
     }
 
     override fun focusEntryFromMainTab(anchorView: View?, preferSpatialEntry: Boolean): Boolean {

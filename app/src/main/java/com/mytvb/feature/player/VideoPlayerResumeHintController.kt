@@ -20,7 +20,9 @@ class VideoPlayerResumeHintController(
 ) {
 
     companion object {
-        private const val SEEK_DELAY_MS = 2_000L
+        // 提示窗口时长=窗口内 BACK 可从头播放的时长，也是续播 seek 的最短等待：
+        // 2s 用户反馈来不及按，2.1.13 后放宽到 3s
+        private const val SEEK_DELAY_MS = 3_000L
         private const val READY_TIMEOUT_MS = 30_000L
         private const val POLL_INTERVAL_MS = 50L
         private const val TRACE_THROTTLE_MS = 500L
@@ -124,7 +126,7 @@ class VideoPlayerResumeHintController(
             }
             onClearResumeHint()
             // setMediaSource(source, seekPositionMs) already starts the player at the
-            // resume position.  Seeking again after the 2 s toast window causes a backward
+            // resume position.  Seeking again after the toast window causes a backward
             // jump + re-buffer; when the audio CDN is fast but the video CDN is slow this
             // re-buffer introduces a persistent A/V offset.  Only seek when the player has
             // drifted far from the target (e.g. the initial start-position was not applied).

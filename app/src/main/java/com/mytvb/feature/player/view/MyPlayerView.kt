@@ -1161,6 +1161,12 @@ class MyPlayerView @JvmOverloads constructor(
 
     fun isControllerFullyVisible(): Boolean = controller?.isFullyVisible() ?: false
 
+    /**
+     * 控制层是否有任何部分在屏（仅进度条态/隐藏动画未结束时为 true，完全隐藏为 false）。
+     * BACK 兜底用：部分可见时返回键应先收掉控制层，而不是穿透成退出播放器。
+     */
+    fun isControllerPartiallyVisible(): Boolean = controller?.visibility == View.VISIBLE
+
     fun isSettingViewShowing(): Boolean = settingView?.isShowing() ?: false
 
     fun removeControllerHideCallbacks() {
@@ -1610,6 +1616,10 @@ class MyPlayerView @JvmOverloads constructor(
         val dtDouble = gestureListener.isDoubleTapping
         AppLog.d("DpadCenter", "!ctrlVisible branch code=${event.keyCode} dtDouble=$dtDouble")
         if (!gestureListener.handleKeyDown(event) && !gestureListener.isDoubleTapping) {
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && onEpisodePanelRequestListener != null) {
+                onEpisodePanelRequestListener?.invoke()
+                return
+            }
             maybeShowController(true)
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
                 event.keyCode == KeyEvent.KEYCODE_ENTER
@@ -1705,11 +1715,16 @@ class MyPlayerView @JvmOverloads constructor(
                 heldSeekKeyCodes.add(event.keyCode)
             }
             if (!session.isActive()) {
-                uiCoordinator?.transition(com.mytvb.feature.player.UiEvent.SeekTypeChanged(
-                    com.mytvb.feature.player.SeekType.HOLD))
+                // 必须先启动会话、成功后才 enterSeekProgressOnly：duration≤0/不可 seek
+                // （起播期、换线重建中）时 startHoldSeek 直接失败，若已进 progress-only
+                // 而会话未激活，松手收尾会被 isActive 守卫整体跳过，进度条将永久停留
+                // 在屏上（v2.1.13「调进度时进度条卡住不消失」根因）
+                session.startHoldSeek(forward)
+                if (!session.isActive()) {
+                    return true
+                }
                 controller?.enterSeekProgressOnly()
                 controller?.requestTimeBarFocus()
-                session.startHoldSeek(forward)
                 // Delay tick loop start so short press can be detected
                 cancelPendingHoldStart()
                 val startRunnable = Runnable {
@@ -2958,6 +2973,12 @@ class MyPlayerView @JvmOverloads constructor(
 
     /** 焦点在进度条时按 OK：请求宿主打开章节选择弹窗（由 Activity/Fragment 设置）。 */
     var onChapterPanelRequestListener: (() -> Unit)? = null
+
+    /**
+     * 控制栏隐藏态按 UP：请求宿主打开选集/合集面板（高频入口，直达免去先呼控制栏）。
+     * 宿主未注册时回退为呼出控制栏；无选集时面板自身会 Toast 提示，按键始终有反馈。
+     */
+    var onEpisodePanelRequestListener: (() -> Unit)? = null
 
     fun showHideActionButton(show: Boolean) {
         pendingActionButtonVisible = show

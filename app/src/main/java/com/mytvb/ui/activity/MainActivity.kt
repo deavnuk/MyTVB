@@ -315,7 +315,13 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         AppLog.i(STARTUP_TAG, "STARTUP attachInitialMainTab start index=$index elapsed=${startMs - activityCreateStartMs}ms")
         showFragment(index)
         postTabSelectedEvent(index)
-        AppLog.i(STARTUP_TAG, "STARTUP attachInitialMainTab end index=$index elapsed=${SystemClock.elapsedRealtime() - startMs}ms")
+        // 冷启动侧栏初始焦点落在当前默认 tab 按钮（主页/动态）上：不指定时系统默认
+        // 焦点给布局里第一个可聚焦视图=最顶部的搜索按钮，而搜索是低频入口（用户反馈）
+        binding.myTabView.post {
+            binding.myTabView.focusCurrentTab()
+            AppLog.i(STARTUP_TAG, "STARTUP sidebar initial focus index=$index")
+        }
+        AppLog.i(STARTUP_TAG, "STARTUP attachInitialMainTab end index=$index elapsed=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
     }
 
     private fun restoreUiStateAfterRecreation() {

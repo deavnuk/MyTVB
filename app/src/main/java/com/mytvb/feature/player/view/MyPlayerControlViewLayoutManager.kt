@@ -35,47 +35,50 @@ class MyPlayerControlViewLayoutManager(
     private val extraControlsScrollView: ViewGroup = playerControlView.findViewById(R.id.exo_extra_controls_scroll_view)
     private val overflowShowButton: View = playerControlView.findViewById(R.id.exo_overflow_show)
     private val overflowHideButton: View = playerControlView.findViewById(R.id.exo_overflow_hide)
+    // 排列顺序按使用频率（用户 2.1.13 反馈）：上一个/暂停/下一个/点赞/弹幕/字幕/倍速/
+    // 选集/UP主/评论/推荐/循环/总设置，其余低频按钮（刷新/快退快进/SC开关/镜像/直播设置/关闭）排尾
     private val orderedButtons: List<View> = listOf(
-        playerControlView.findViewById(R.id.button_play),
-        playerControlView.findViewById(R.id.button_comment),
-        playerControlView.findViewById(R.id.button_more),
-        playerControlView.findViewById(R.id.button_refresh),
         playerControlView.findViewById(R.id.button_previous),
+        playerControlView.findViewById(R.id.button_play),
         playerControlView.findViewById(R.id.button_next),
-        playerControlView.findViewById(R.id.button_rewind),
-        playerControlView.findViewById(R.id.button_fast_forward),
+        playerControlView.findViewById(R.id.button_more),
         playerControlView.findViewById(R.id.button_dm_switch),
-        playerControlView.findViewById(R.id.button_sc_switch),
-        playerControlView.findViewById(R.id.button_mirror),
+        playerControlView.findViewById(R.id.button_subtitle),
         playerControlView.findViewById(R.id.button_play_speed),
-        playerControlView.findViewById(R.id.exo_settings),
         playerControlView.findViewById(R.id.button_choose_episode),
         playerControlView.findViewById(R.id.button_up_info),
-        playerControlView.findViewById(R.id.button_subtitle),
+        playerControlView.findViewById(R.id.button_comment),
         playerControlView.findViewById(R.id.button_related),
         playerControlView.findViewById(R.id.button_repeat),
+        playerControlView.findViewById(R.id.exo_settings),
+        playerControlView.findViewById(R.id.button_refresh),
+        playerControlView.findViewById(R.id.button_rewind),
+        playerControlView.findViewById(R.id.button_fast_forward),
+        playerControlView.findViewById(R.id.button_sc_switch),
+        playerControlView.findViewById(R.id.button_mirror),
         playerControlView.findViewById(R.id.button_live_settings),
         playerControlView.findViewById(R.id.button_close)
     )
+    // 屏宽不足时先进 overflow 的顺序：非高频列表的按钮最先收起，然后按高频列表从尾往头收
     private val overflowPriority = listOf(
         R.id.button_live_settings,
-        R.id.button_repeat,
-        R.id.button_related,
-        R.id.button_subtitle,
-        R.id.button_up_info,
-        R.id.button_comment,
-        R.id.button_more,
-        R.id.button_choose_episode,
-        R.id.button_refresh,
-        R.id.button_sc_switch,
-        R.id.button_dm_switch,
         R.id.button_mirror,
-        R.id.button_play_speed,
-        R.id.button_next,
-        R.id.button_previous,
+        R.id.button_sc_switch,
         R.id.button_fast_forward,
         R.id.button_rewind,
-        R.id.exo_settings
+        R.id.button_refresh,
+        R.id.exo_settings,
+        R.id.button_repeat,
+        R.id.button_related,
+        R.id.button_comment,
+        R.id.button_up_info,
+        R.id.button_choose_episode,
+        R.id.button_play_speed,
+        R.id.button_subtitle,
+        R.id.button_dm_switch,
+        R.id.button_more,
+        R.id.button_next,
+        R.id.button_previous
     )
     private val hiddenTranslationY by lazy {
         playerControlView.resources.getDimension(R.dimen.px147)
@@ -154,6 +157,9 @@ class MyPlayerControlViewLayoutManager(
     }
 
     fun isFullyVisible(): Boolean = uxState == UX_STATE_ALL_VISIBLE && playerControlView.isVisible()
+
+    /** 是否处于「仅进度条」态（长按快进的瞬时进度条模式）。 */
+    fun isProgressOnlyVisible(): Boolean = uxState == UX_STATE_ONLY_PROGRESS_VISIBLE
 
     fun setAnimationEnabled(enabled: Boolean) {
         isAnimationEnabled = enabled

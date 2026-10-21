@@ -16,10 +16,13 @@ import com.mytvb.R
 import com.mytvb.databinding.FragmentLiveBinding
 import com.mytvb.model.live.LiveAreaCategoryParent
 import com.mytvb.core.ui.base.BaseFragment
+import com.mytvb.core.ui.base.OnBackPressedHandler
+import com.mytvb.ui.activity.MainActivity
 import com.mytvb.ui.fragment.main.MainNavigationViewModel
 import com.mytvb.ui.fragment.main.MainTabFocusTarget
 import com.mytvb.core.ui.tab.enableTouchNavigation
 import com.mytvb.core.ui.tab.focusNearestTabTo
+import com.mytvb.core.ui.tab.focusSelectedTab
 import com.mytvb.core.ui.tab.disableAdjacentPagePrefetch
 import com.mytvb.core.common.ext.toast
 import com.mytvb.core.common.log.AppLog
@@ -28,7 +31,7 @@ import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
-class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
+class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget, OnBackPressedHandler {
     companion object {
         private const val CATEGORY_CACHE_TTL_MS = 20 * 60 * 1000L
 
@@ -178,6 +181,24 @@ class LiveFragment : BaseFragment<FragmentLiveBinding>(), MainTabFocusTarget {
 
     fun focusCurrentTab(anchorView: View? = view?.findFocus() ?: activity?.currentFocus): Boolean {
         return binding.tabLayout.focusNearestTabTo(anchorView)
+    }
+
+    /**
+     * BACK 分层（对齐主页 内容→二级tab→侧栏）：
+     * 内容区 → 聚焦当前选中的分区 tab；分区 tab 栏 → 回主边栏当前 tab；
+     * 焦点已在本页外（如侧栏）→ 返回 false 交给 MainActivity 双击退出。
+     */
+    override fun onBackPressed(): Boolean {
+        if (view == null) {
+            return false
+        }
+        if (!binding.root.hasFocus()) {
+            return false
+        }
+        if (binding.tabLayout.hasFocus()) {
+            return (activity as? MainActivity)?.focusSidebarCurrentTab() == true
+        }
+        return binding.tabLayout.focusSelectedTab()
     }
 
     override fun focusEntryFromMainTab(): Boolean {

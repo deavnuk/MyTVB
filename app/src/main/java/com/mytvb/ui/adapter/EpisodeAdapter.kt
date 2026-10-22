@@ -6,6 +6,7 @@ import android.graphics.drawable.Drawable
 import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.style.ImageSpan
+import android.view.KeyEvent
 import android.view.ViewOutlineProvider
 import android.view.LayoutInflater
 import android.view.View
@@ -17,6 +18,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.mytvb.R
+import com.mytvb.core.ui.focus.tv.TvFocusableAdapter
 import com.mytvb.databinding.CellEpisodeBinding
 import com.mytvb.model.episode.EpisodeModel
 import com.mytvb.core.ui.image.ImageLoader
@@ -28,10 +30,13 @@ class EpisodeAdapter(
     private val onEpisodeFocused: (() -> Unit)? = null,
     private val nextFocusUpId: Int? = null,
     private val rememberFocusedItem: Boolean = true,
-    private val onVerticalKey: ((View, Int) -> Boolean)? = null
-) : ListAdapter<EpisodeModel, EpisodeAdapter.EpisodeViewHolder>(DIFF_CALLBACK) {
+    private val onVerticalKey: ((View, Int) -> Boolean)? = null,
+    onItemFocusedWithView: ((View, Int) -> Unit)? = null,
+    private val onItemDpad: ((View, Int, KeyEvent) -> Boolean)? = null
+) : ListAdapter<EpisodeModel, EpisodeAdapter.EpisodeViewHolder>(DIFF_CALLBACK), TvFocusableAdapter {
 
     private var focusedPosition = RecyclerView.NO_POSITION
+    private val itemFocusedWithView = onItemFocusedWithView
 
     /** 上次看到的那集：标题高亮 + 播放动图（与 UGC 详情页合集列表显示逻辑统一） */
     var currentEpId: Long = 0L
@@ -65,9 +70,11 @@ class EpisodeAdapter(
             if (rememberFocusedItem) {
                 focusedPosition = recyclerPositionOf(view)
             }
+            itemFocusedWithView?.invoke(view, recyclerPositionOf(view))
             onEpisodeFocused?.invoke()
             },
-            onVerticalKey = onVerticalKey
+            onVerticalKey = onVerticalKey,
+            onItemDpad = onItemDpad
         ).also { holder ->
             holder.nextFocusUpId = nextFocusUpId
         }
@@ -78,6 +85,20 @@ class EpisodeAdapter(
             .takeIf { it != RecyclerView.NO_POSITION && it < (list?.size ?: 0) }
             ?: RecyclerView.NO_POSITION
         super.submitList(list)
+    }
+
+    override fun focusableItemCount(): Int = itemCount
+
+    override fun stableKeyAt(position: Int): String? {
+        return "ep:${currentList.getOrNull(position)?.id ?: 0L}"
+    }
+
+    override fun findPositionByStableKey(key: String): Int {
+        if (!key.startsWith("ep:")) return RecyclerView.NO_POSITION
+        val id = key.removePrefix("ep:").toLongOrNull() ?: return RecyclerView.NO_POSITION
+        return currentList.indexOfFirst { it.id == id }
+            .takeIf { it >= 0 }
+            ?: RecyclerView.NO_POSITION
     }
 
     fun reverse() {
@@ -108,7 +129,8 @@ class EpisodeAdapter(
     class EpisodeViewHolder(
         private val binding: CellEpisodeBinding,
         private val onFocused: (View) -> Unit,
-        private val onVerticalKey: ((View, Int) -> Boolean)?
+        private val onVerticalKey: ((View, Int) -> Boolean)?,
+        private val onItemDpad: ((View, Int, KeyEvent) -> Boolean)? = null
     ) : RecyclerView.ViewHolder(binding.root) {
 
         var nextFocusUpId: Int? = null
@@ -155,6 +177,11 @@ class EpisodeAdapter(
                     return@setOnKeyListener false
                 }
                 when (keyCode) {
+                    // 左右交给 TvListFocusController：按 position 步进，不受平滑滚动动画影响
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT ->
+                        onItemDpad?.invoke(view, keyCode, event) == true
+
                     android.view.KeyEvent.KEYCODE_DPAD_UP,
                     android.view.KeyEvent.KEYCODE_DPAD_DOWN -> onVerticalKey?.invoke(view, keyCode) == true
                     else -> false

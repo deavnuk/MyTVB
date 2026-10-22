@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.mytvb.R
+import com.mytvb.core.ui.focus.tv.TvFocusableAdapter
 import com.mytvb.databinding.CellSeriesBinding
 import com.mytvb.model.series.SeriesModel
 import com.mytvb.core.ui.image.ImageLoader
@@ -26,10 +27,27 @@ class SeriesAdapter(
     private val nextFocusUpId: Int? = null,
     private val rememberFocusedItem: Boolean = true,
     private val onVerticalKey: ((View, Int) -> Boolean)? = null,
+    onItemFocusedWithView: ((View, Int) -> Unit)? = null,
+    private val onItemDpad: ((View, Int, android.view.KeyEvent) -> Boolean)? = null,
     private val cardWidth: Int = 0
-) : ListAdapter<SeriesModel, SeriesAdapter.SeriesViewHolder>(DIFF_CALLBACK) {
+) : ListAdapter<SeriesModel, SeriesAdapter.SeriesViewHolder>(DIFF_CALLBACK), TvFocusableAdapter {
 
     private var focusedPosition = RecyclerView.NO_POSITION
+    private val itemFocusedWithView = onItemFocusedWithView
+
+    override fun focusableItemCount(): Int = itemCount
+
+    override fun stableKeyAt(position: Int): String? {
+        return "season:${currentList.getOrNull(position)?.seasonId ?: 0L}"
+    }
+
+    override fun findPositionByStableKey(key: String): Int {
+        if (!key.startsWith("season:")) return RecyclerView.NO_POSITION
+        val id = key.removePrefix("season:").toLongOrNull() ?: return RecyclerView.NO_POSITION
+        return currentList.indexOfFirst { it.seasonId == id }
+            .takeIf { it >= 0 }
+            ?: RecyclerView.NO_POSITION
+    }
 
     companion object {
         private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<SeriesModel>() {
@@ -82,10 +100,12 @@ class SeriesAdapter(
             onBottomEdgeDown = onBottomEdgeDown,
             nextFocusUpId = nextFocusUpId,
             onVerticalKey = onVerticalKey,
+            onItemDpad = onItemDpad,
             onFocused = { view ->
                 if (rememberFocusedItem) {
                     focusedPosition = recyclerPositionOf(view)
                 }
+                itemFocusedWithView?.invoke(view, recyclerPositionOf(view))
                 onItemFocused?.invoke()
             },
             cardWidth = cardWidth
@@ -110,6 +130,7 @@ class SeriesAdapter(
         private val onBottomEdgeDown: (() -> Boolean)?,
         private val nextFocusUpId: Int?,
         private val onVerticalKey: ((View, Int) -> Boolean)?,
+        private val onItemDpad: ((View, Int, android.view.KeyEvent) -> Boolean)?,
         private val onFocused: (View) -> Unit,
         private val cardWidth: Int = 0
     ) : RecyclerView.ViewHolder(binding.root) {
@@ -125,14 +146,19 @@ class SeriesAdapter(
                     onFocused(view)
                 }
             }
-            if (onVerticalKey != null) {
+            if (onVerticalKey != null || onItemDpad != null) {
                 binding.clickView.setOnKeyListener { view, keyCode, event ->
                     if (event.action != android.view.KeyEvent.ACTION_DOWN) {
                         return@setOnKeyListener false
                     }
                     when (keyCode) {
+                        // 左右交给 TvListFocusController：按 position 步进，不受平滑滚动动画影响
+                        android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT ->
+                            onItemDpad?.invoke(view, keyCode, event) == true
+
                         android.view.KeyEvent.KEYCODE_DPAD_UP,
-                        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> onVerticalKey.invoke(view, keyCode)
+                        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> onVerticalKey?.invoke(view, keyCode) == true
                         else -> false
                     }
                 }

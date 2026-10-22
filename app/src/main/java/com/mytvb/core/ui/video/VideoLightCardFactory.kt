@@ -19,6 +19,7 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.ImageView
 import androidx.core.content.ContextCompat
 import com.mytvb.R
@@ -484,6 +485,21 @@ class VideoCardTextLayerView @JvmOverloads constructor(
     private var cachedPlaying = false
     private var cachedDrawLines: List<String> = emptyList()
 
+    // --- 焦点卡长标题垂直滚动（两行装不下时滚动露出完整标题，失焦即停并复位）---
+    private var cachedFullSource = ""
+    private var cachedFullWidth = -1
+    private var cachedFullPlaying = false
+    private var cachedFullDrawLines: List<String> = emptyList()
+    private var titleScrollRunning = false
+    private var titleScrollOffset = 0f
+    private var titleScrollCycleStartElapsedMs = 0L
+
+    private val cardFocusListener = ViewTreeObserver.OnGlobalFocusChangeListener { _, newFocus ->
+        setTitleScrollEnabled(isFocusOnThisCard(newFocus))
+    }
+
+    private val titleScrollRunnable = Runnable { tickTitleScroll() }
+
     // “正在播放” GIF 动画。GIF 在自定义 Canvas 绘制模式下默认只画首帧，
     // 这里持有 GifDrawable 并通过它的帧回调驱动重绘，让动图真正动起来。
     private var playingDrawable: GifDrawable? = null
@@ -519,11 +535,16 @@ class VideoCardTextLayerView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         updatePlayingAnimation()
+        viewTreeObserver.addOnGlobalFocusChangeListener(cardFocusListener)
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         playingDrawable?.stop()
+        setTitleScrollEnabled(false)
+        if (viewTreeObserver.isAlive) {
+            viewTreeObserver.removeOnGlobalFocusChangeListener(cardFocusListener)
+        }
     }
 
     fun setTitle(
@@ -543,6 +564,9 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         playing = isPlaying
         titleColor = color
         titlePaint.color = color
+        // 换标题/播放态变化：复位滚动（新标题若仍超长且焦点在本卡，下一帧焦点
+        // 监听不会再来，这里按当前焦点态重新评估）
+        setTitleScrollEnabled(isFocusOnThisCard(isFocusedCardView()))
         clearTitleCache()
         if (layoutMayChange) {
             requestLayout()
@@ -646,8 +670,14 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         if (titleText.isBlank()) return
         val lineHeight = titleLineHeight()
         val fontMetrics = titlePaint.fontMetrics
+        if (titleScrollRunning) {
+            // 滚动态：裁剪到标题可视区（owner 行不参与），完整分行随偏移上移
+            canvas.save()
+            canvas.clipRect(0f, 0f, width.toFloat(), (lineHeight * titleLines).toFloat())
+            canvas.translate(0f, -titleScrollOffset)
+        }
         var baseline = -fontMetrics.ascent
-        val lines = titleLines(width)
+        val lines = if (titleScrollRunning) fullTitleLines(width) else titleLines(width)
         var iconSpace = 0f
         if (playing) {
             val iconSize = lineHeight.coerceAtMost(metrics.titleIconFallbackSize)
@@ -666,6 +696,9 @@ class VideoCardTextLayerView @JvmOverloads constructor(
             val x = if (index == 0) iconSpace else 0f
             canvas.drawText(line, x, baseline, titlePaint)
             baseline += lineHeight
+        }
+        if (titleScrollRunning) {
+            canvas.restore()
         }
     }
 
@@ -769,8 +802,7 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         return x
     }
 
-    private fun titleLines(width: Int): List<String> {
-        if (width <= 0 || titleText.isBlank()) return emptyList()
+    private fun titleLines(width: Int): List<String> {        if (width <= 0 || titleText.isBlank()) return emptyList()
         if (cachedTitleSource == titleText &&
             cachedTitleWidth == width &&
             cachedTitleLines == titleLines &&
@@ -815,6 +847,97 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         return (width - iconSpace).coerceAtLeast(0)
     }
 
+    /**
+     * 完整分行（不限行数、末行不截断），供焦点滚动绘制；与 [titleLines] 的前
+     * titleLines 行使用同一 breakText 与行宽，滚动起点与静止态视觉无跳变。
+     */
+    private fun fullTitleLines(width: Int): List<String> {
+        if (width <= 0 || titleText.isBlank()) return emptyList()
+        if (cachedFullSource == titleText && cachedFullWidth == width && cachedFullPlaying == playing) {
+            return cachedFullDrawLines
+        }
+        val result = ArrayList<String>(titleLines + 1)
+        var start = 0
+        while (start < titleText.length) {
+            val lineWidth = titleWidthForLine(result.size).coerceAtLeast(1)
+            val count = titlePaint.breakText(titleText, start, titleText.length, true, lineWidth.toFloat(), null)
+            val end = (start + count).coerceIn(start + 1, titleText.length)
+            result += titleText.substring(start, end).trimEnd()
+            start = end
+            while (start < titleText.length && titleText[start].isWhitespace()) start++
+        }
+        cachedFullSource = titleText
+        cachedFullWidth = width
+        cachedFullPlaying = playing
+        cachedFullDrawLines = result
+        return result
+    }
+
+    /** 焦点是否落在本卡片（文字层的父链上任意一环持有焦点）。 */
+    private fun isFocusOnThisCard(focused: View?): Boolean {
+        val cardRoot = parent as? View ?: return false
+        var v: View? = focused
+        while (v != null) {
+            if (v === cardRoot) return true
+            v = v.parent as? View
+        }
+        return false
+    }
+
+    private fun isFocusedCardView(): View? =
+        if (isAttachedToWindow) rootView.findFocus() else null
+
+    /**
+     * 焦点态长标题垂直滚动：先静止读首屏 [TITLE_SCROLL_START_HOLD_MS]，
+     * 线性滚到末尾，停留 [TITLE_SCROLL_END_HOLD_MS] 后回顶循环；失焦/换标题/
+     * 离屏即停并复位偏移。仅焦点卡片一张在滚，帧驱动重绘本 View 自身。
+     */
+    private fun setTitleScrollEnabled(enabled: Boolean) {
+        if (enabled) {
+            if (titleScrollRunning || !isAttachedToWindow) return
+            if (fullTitleLines(width).size <= titleLines) return
+            titleScrollRunning = true
+            titleScrollOffset = 0f
+            titleScrollCycleStartElapsedMs = SystemClock.elapsedRealtime()
+            postOnAnimation(titleScrollRunnable)
+        } else if (titleScrollRunning) {
+            titleScrollRunning = false
+            removeCallbacks(titleScrollRunnable)
+            titleScrollOffset = 0f
+            invalidate()
+        }
+    }
+
+    private fun tickTitleScroll() {
+        if (!titleScrollRunning || !isAttachedToWindow) {
+            titleScrollRunning = false
+            return
+        }
+        val lineHeight = titleLineHeight()
+        val fullLines = fullTitleLines(width)
+        val maxScrollPx = (fullLines.size - titleLines).coerceAtLeast(0) * lineHeight
+        if (maxScrollPx <= 0) {
+            setTitleScrollEnabled(false)
+            return
+        }
+        val scrollDurationMs = (maxScrollPx / TITLE_SCROLL_SPEED_PX_PER_MS).toLong()
+            .coerceAtLeast(TITLE_SCROLL_MIN_DURATION_MS)
+        val cycleMs = TITLE_SCROLL_START_HOLD_MS + scrollDurationMs + TITLE_SCROLL_END_HOLD_MS
+        var elapsed = SystemClock.elapsedRealtime() - titleScrollCycleStartElapsedMs
+        while (elapsed >= cycleMs) {
+            elapsed -= cycleMs
+            titleScrollCycleStartElapsedMs += cycleMs
+        }
+        titleScrollOffset = when {
+            elapsed < TITLE_SCROLL_START_HOLD_MS -> 0f
+            elapsed < TITLE_SCROLL_START_HOLD_MS + scrollDurationMs ->
+                (elapsed - TITLE_SCROLL_START_HOLD_MS).toFloat() / scrollDurationMs.toFloat() * maxScrollPx
+            else -> maxScrollPx.toFloat()
+        }
+        postInvalidateOnAnimation()
+        postOnAnimation(titleScrollRunnable)
+    }
+
     private fun hasOwnerContent(): Boolean {
         return showOwner && (ownerText.isNotBlank() || ownerBadgeText.isNotBlank() || showOwnerAvatar ||
             historyTimeText.isNotBlank() || historyDeviceRes != 0)
@@ -839,6 +962,9 @@ class VideoCardTextLayerView @JvmOverloads constructor(
         cachedTitleSource = ""
         cachedTitleWidth = -1
         cachedDrawLines = emptyList()
+        cachedFullSource = ""
+        cachedFullWidth = -1
+        cachedFullDrawLines = emptyList()
     }
 
     private class TextLayerAssets(
@@ -931,6 +1057,12 @@ class VideoCardTextLayerView @JvmOverloads constructor(
 
         /** 与 VideoAdapter.badgeTextFor 的已关注文案保持一致（分段绘制的形态判定键）。 */
         const val FOLLOWED_LABEL = "已关注"
+
+        /** 焦点标题滚动：起点/终点静止时长与速度（px/ms，约 0.4~0.5s 滚一行） */
+        private const val TITLE_SCROLL_START_HOLD_MS = 800L
+        private const val TITLE_SCROLL_END_HOLD_MS = 1600L
+        private const val TITLE_SCROLL_SPEED_PX_PER_MS = 1f / 14f
+        private const val TITLE_SCROLL_MIN_DURATION_MS = 400L
     }
 }
 

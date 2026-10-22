@@ -106,6 +106,24 @@ class MyPlayerControlViewLayoutManager(
     private var progressOnlyUiEnabled: Boolean = true
     private var timeViewVisible: Boolean = true
     private var adaptiveLayoutScheduled: Boolean = false
+    private var hideCallbacksSuspended: Boolean = false
+
+    /**
+     * 弹窗类面板（选集/合集/章节等）打开期间挂起控制栏自动隐藏调度。
+     * 挂起时 [resetHideCallbacks] 只清不挂（show 动画结束回调的重挂也被拦截）；
+     * 解除挂起会立即按当前可见状态恢复一次正常调度。
+     */
+    fun setHideCallbacksSuspended(suspended: Boolean) {
+        if (hideCallbacksSuspended == suspended) {
+            return
+        }
+        hideCallbacksSuspended = suspended
+        if (suspended) {
+            removeHideCallbacks()
+        } else {
+            resetHideCallbacks()
+        }
+    }
 
     init {
         overflowShowButton.setOnClickListener { showOverflowControls() }
@@ -199,6 +217,13 @@ class MyPlayerControlViewLayoutManager(
 
     fun resetHideCallbacks() {
         if (uxState == UX_STATE_ANIMATING_HIDE) {
+            return
+        }
+        if (hideCallbacksSuspended) {
+            // 弹窗类面板打开期间挂起自动隐藏：show 动画结束回调会重新武装
+            // hide 调度（晚于面板入口的 remove），不挂起的话面板开着约 3 秒后
+            // 控制栏会自动缩回（v2.1.14「打开合集面板控制栏缩回」根因）
+            removeHideCallbacks()
             return
         }
         removeHideCallbacks()

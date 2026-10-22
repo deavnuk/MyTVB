@@ -8,6 +8,7 @@ import com.mytvb.ui.activity.LivePlayerActivity
 import com.mytvb.ui.activity.MainActivity
 import com.mytvb.ui.activity.PlayerActivity
 import com.mytvb.feature.detail.VideoDetailFragment
+import com.mytvb.feature.series.SeriesDetailFragment
 import com.mytvb.feature.player.PlaybackStartupTrace
 import com.mytvb.feature.player.settings.PlayerSettingsStore
 import com.mytvb.core.common.ext.isOpenDetailFirstEnabled
@@ -49,6 +50,20 @@ object VideoRouteNavigator {
             val hostActivity = findMainActivityHost(context)
             AppLog.d(TAG, "openVideo: detailFirst=true, host=$hostActivity")
             if (hostActivity != null) {
+                // PGC（番剧/影视）条目必须走番剧详情页：UGC 详情页用 x/web-interface
+                // 接口加载，番剧单集返回的数据没有 ugcSeason，选集/预告/花絮整个
+                // 不显示（v2.1.14 反馈：历史页点进看过的番剧下方空白）。历史条目的
+                // seasonId 由 uri(/bangumi/play/ssXXXX) 解析、epId=history.epid。
+                if (video.isPgc && video.playbackSeasonId > 0L) {
+                    AppLog.d(TAG, "openVideo: pgc route seasonId=${video.playbackSeasonId} epId=${video.playbackEpId}")
+                    hostActivity.openInHostContainer(
+                        SeriesDetailFragment.newInstance(
+                            seasonId = video.playbackSeasonId,
+                            epId = video.playbackEpId
+                        )
+                    )
+                    return
+                }
                 hostActivity.openInHostContainer(VideoDetailFragment.newInstance(video, playQueue))
                 return
             }

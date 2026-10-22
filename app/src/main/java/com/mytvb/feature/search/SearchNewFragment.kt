@@ -218,9 +218,15 @@ class SearchNewFragment :
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
                     if (isResultPanelVisible) {
                         focusResultHeader(view)
-                    } else {
+                    } else if (!binding.editText.text?.toString().isNullOrBlank()) {
+                        // 输入中：按右进联想词列表
                         focusCenterColumn(view) ||
                             focusHotColumn(view) ||
+                            binding.viewKeyboard.requestPrimaryFocus()
+                    } else {
+                        // 空输入：按右直达第一条热搜（v2.1.14 反馈），中列为历史记录不抢右键
+                        focusHotColumn(view) ||
+                            focusCenterColumn(view) ||
                             binding.viewKeyboard.requestPrimaryFocus()
                     }
                 }
@@ -567,7 +573,8 @@ class SearchNewFragment :
     /**
      * BACK 分层（对齐主页 内容→二级tab→侧栏）：
      * 结果面板内容区 → 先聚焦顶部结果分类 tab；已在分类 tab 上 → 退回搜索面板；
-     * 搜索面板/键盘 → 回主边栏当前 tab；焦点已在本页外 → false 交双击退出。
+     * 搜索面板内（热搜/历史/键盘）→ 先回搜索输入框；已在输入框 → 回主边栏当前 tab；
+     * 焦点已在本页外 → false 交双击退出。
      * 原方法无任何调用方（死代码），2.1.13 后接入 OnBackPressedHandler 生效。
      */
     override fun onBackPressed(): Boolean {
@@ -582,6 +589,9 @@ class SearchNewFragment :
                 return true
             }
             showSearchPanel()
+            return true
+        }
+        if (!binding.editText.hasFocus() && binding.editText.requestFocus()) {
             return true
         }
         return (activity as? MainActivity)?.focusSidebarCurrentTab() == true
@@ -762,6 +772,11 @@ class SearchNewFragment :
     }
 
     private fun restoreSearchPanelFocus(anchorView: View? = null): Boolean {
+        // 进入搜索面板（侧栏按右 / 结果面板返回）统一先落搜索输入框；
+        // 原实现恢复"上次聚焦的热搜条目"，再次进入仍停在第三条热搜（v2.1.14 反馈）
+        if (binding.editText.isVisible && binding.editText.requestFocus()) {
+            return true
+        }
         return focusCoordinator.restoreSearchPanelFocus(
             anchorView = anchorView,
             focusCenterColumn = ::focusCenterColumn,

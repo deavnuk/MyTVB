@@ -337,7 +337,10 @@ class MyPlayerView @JvmOverloads constructor(
     private val heldSeekKeyCodes = mutableSetOf<Int>()
     private var pendingExitSeekProgressOnly: Runnable? = null
     private var pendingHoldStartRunnable: Runnable? = null
-    private val holdStartDelayMs = 200L
+    // 短按/长按判定窗口，对齐 ViewConfiguration.getLongPressTimeout() 标准（400ms）。
+    // 原值 200ms 太短：遥控器正常短按常达 200~400ms，超时即误入长按 tick 模式，
+    // 表现为"短按跳 1~3 秒且弹中央大图标"（v2.1.14 用户反馈根因之一）。
+    private val holdStartDelayMs = 400L
 
     // --- SeekDiag: 诊断 seek 后画面卡死(纯观测,不改播放逻辑)---
     // 目标:坐实"async MediaCodec adapter flush 后丢失首帧回调"是不是根因。
@@ -1177,6 +1180,11 @@ class MyPlayerView @JvmOverloads constructor(
         controller?.resetHideCallbacks()
     }
 
+    /** 弹窗类面板打开期间挂起/恢复控制栏自动隐藏调度（转发至 LayoutManager）。 */
+    fun setControllerHideCallbacksSuspended(suspended: Boolean) {
+        controller?.setHideCallbacksSuspended(suspended)
+    }
+
     private fun toggleControllerVisibility() {
         if (!useController() || player == null) return
 
@@ -1754,10 +1762,12 @@ class MyPlayerView @JvmOverloads constructor(
         } else if (event.action == KeyEvent.ACTION_UP) {
             heldSeekKeyCodes.remove(event.keyCode)
             if (heldSeekKeyCodes.isEmpty() && session.isActive()) {
-                val holdStarted = pendingHoldStartRunnable != null
                 cancelPendingHoldStart()
-                if (holdStarted) {
-                    // Short press: accumulate instead of immediate seek
+                if (!session.hasHoldProgress()) {
+                    // 短按：累积 ±10s 而不是立即 seek。除起表延迟未到外，还包括
+                    // holdStartDelayMs 已到、首个 40ms tick 未跑的零位移窗口——
+                    // 原实现此时按长按收尾、以进入位置提交，表现为"按了没反应
+                    // 根本跳不过去"（v2.1.14 用户反馈根因之二），统一回退短按。
                     handleTapAccumulate(forward)
                     session.resetSilently()
                 } else {
@@ -1957,8 +1967,11 @@ class MyPlayerView @JvmOverloads constructor(
             val holdStarted = pendingTimebarHoldStartRunnable != null
             cancelPendingTimebarHoldStart()
             cancelTimebarSeekLoop()
-            if (holdStarted) {
-                // Short press: 有章节时直接跨章跳转；无章节回落 ±10s 轻点累积
+            if (holdStarted || timebarSeekStartMs == 0L) {
+                // Short press: 有章节时直接跨章跳转；无章节回落 ±10s 轻点累积。
+                // timebarSeekStartMs==0 含起表已到、首个 40ms tick 未跑的零位移
+                // 窗口（原实现按长按以当前位置提交="跳不过去"），与 DPAD 路径
+                // 一致回退短按。
                 if (trySeekChapter(forward)) {
                     resetTapAccumulate()
                 } else {
@@ -1969,14 +1982,7 @@ class MyPlayerView @JvmOverloads constructor(
                 resetTapAccumulate()
                 val currentPlayer = player
                 if (timebarSeekActive && currentPlayer != null) {
-                    // startMs==0 说明 tick 循环从未初始化目标（首 tick 前松手，或起播
-                    // duration<=0 时 tick 全部早退），target 仍是 0 值，按 0 提交=跳回片头；
-                    // 落到当前位置，行为等同"没有拖动"
-                    val targetMs = if (timebarSeekStartMs == 0L) {
-                        currentPlayer.currentPosition
-                    } else {
-                        timebarSeekTargetMs
-                    }
+                    val targetMs = timebarSeekTargetMs
                     currentPlayer.seekTo(targetMs)
                     onUserSeekListener?.invoke(targetMs)
                     syncDanmakuPosition(targetMs, forceSeek = true)

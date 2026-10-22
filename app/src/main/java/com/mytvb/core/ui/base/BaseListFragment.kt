@@ -1,5 +1,6 @@
 package com.mytvb.core.ui.base
 
+import android.graphics.Rect
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -301,17 +302,23 @@ abstract class BaseListFragment<MODEL> : BaseFragment<FragmentBaseListBinding>()
             if (!isAdded || view == null) return@post
             val focused = rv.findFocus()
             if (focused == null) return@post
-            val itemView = rv.findContainingItemView(focused) ?: return@post
+            // 以聚焦视图自身的可见性计算补偿，而不是 containing item：lane 页的
+            // item 是整个 section（标题+全展开网格，常高于视口），按 section 补偿
+            // 会把 section 底缘对齐视口底，顶部的标题（如「我的追番」）被整段
+            // 顶出屏只露底边（v2.1.14 反馈）。嵌套 RV 内的卡片用 offset 换算坐标。
+            val focusRect = Rect()
+            focused.getDrawingRect(focusRect)
+            rv.offsetDescendantRectToMyCoords(focused, focusRect)
             val padTop = rv.paddingTop
             val visibleBottom = rv.height - rv.paddingBottom
             val delta = when {
-                itemView.top < padTop -> itemView.top - padTop
-                itemView.bottom > visibleBottom -> itemView.bottom - visibleBottom
+                focusRect.top < padTop -> focusRect.top - padTop
+                focusRect.bottom > visibleBottom -> focusRect.bottom - visibleBottom
                 else -> 0
             }
             com.mytvb.core.common.log.AppLog.d(
                 "DownFocus",
-                "[base] post focusedItem top=${itemView.top} bottom=${itemView.bottom} padTop=$padTop visibleBottom=$visibleBottom delta=$delta"
+                "[base] post focusTop=${focusRect.top} focusBottom=${focusRect.bottom} padTop=$padTop visibleBottom=$visibleBottom delta=$delta"
             )
             if (delta != 0) {
                 rv.scrollBy(0, delta)

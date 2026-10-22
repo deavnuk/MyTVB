@@ -102,7 +102,9 @@ internal class SubtitlePlaybackController(
     }
 
     fun setSubtitles(tracks: List<SubtitleInfoModel>) {
-        _subtitles.value = tracks
+        // 统一在此收口展示排序（设备语言→AI→其它）：detail/playerInfo 两条装载
+        // 链路的多个直塞入口无需各自排序，UI 下标全程一致
+        _subtitles.value = orderSubtitleTracksByPreference(tracks)
     }
 
     fun subtitlesValue(): List<SubtitleInfoModel> = _subtitles.value

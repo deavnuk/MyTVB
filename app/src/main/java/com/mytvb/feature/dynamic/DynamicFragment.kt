@@ -666,28 +666,14 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
 
     private fun focusPrimaryContent(anchorView: View?, preferSpatialEntry: Boolean): Boolean {
         if (preferSpatialEntry) {
-            if (anchorView != null) {
-                when {
-                    anchorView.isDescendantOf(binding.recyclerViewRight) -> {
-                        if (focusRightContent()) {
-                            return true
-                        }
-                    }
-
-                    anchorView.isDescendantOf(binding.recyclerViewLeft) -> {
-                        if (focusSelectedUpItem()) {
-                            return true
-                        }
-                    }
+            // 锚点在左 UP 列表（页内恢复）才回 UP 选中项；从侧栏按右进入
+            // 一律直接定位第一行第一个视频——不再对左列表做空间搜索，
+            // 否则焦点会先落在与侧栏按钮同一水平线的 UP 主项上（v2.1.14 反馈）
+            if (anchorView != null && anchorView.isDescendantOf(binding.recyclerViewLeft)) {
+                if (focusSelectedUpItem()) {
+                    return true
                 }
-            }
-            val handled = SpatialFocusNavigator.requestBestDescendant(
-                anchorView = anchorView,
-                root = binding.recyclerViewLeft,
-                direction = View.FOCUS_RIGHT,
-                fallback = null
-            )
-            if (handled) {
+            } else if (focusRightContent()) {
                 return true
             }
         }

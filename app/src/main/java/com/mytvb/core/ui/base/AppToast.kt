@@ -130,20 +130,22 @@ object AppToast {
 
         val activity = resumedActivity?.get()
         val decor = activity?.window?.decorView as? ViewGroup
-        val canOverlay = activity != null && decor != null && decor.isAttachedToWindow &&
-            !activity.isFinishing && !activity.isDestroyed
 
         AppLog.i(
             TAG,
-            "show render=${if (canOverlay) "overlay" else "systemToast"} text=\"$text\" " +
+            "show render=${if (decor != null && decor.isAttachedToWindow &&
+                !activity.isFinishing && !activity.isDestroyed) "overlay" else "systemToast"} " +
+                "text=\"$text\" " +
                 "screen=${metrics.widthPixels}x${metrics.heightPixels} " +
-                "density=${metrics.density} scaledDensity=${metrics.scaledDensity} " +
+                "density=${metrics.density} scaledDensity=${metrics.density * context.resources.configuration.fontScale} " +
                 "design=$design userScale=${UiScale.scale()} textScale=${UiTextScale.scale()} " +
                 "fontScale=${context.resources.configuration.fontScale} " +
                 "rawPx36=$rawPx36 appliedPx=$appliedPx"
         )
 
-        if (canOverlay && activity != null && decor != null) {
+        if (activity != null && decor != null && decor.isAttachedToWindow &&
+            !activity.isFinishing && !activity.isDestroyed
+        ) {
             showOverlay(activity, decor, text, appliedPx, duration, gravity, yOffsetPx)
         } else {
             showSystemToast(context, text, appliedPx, duration, gravity, yOffsetPx, metrics)

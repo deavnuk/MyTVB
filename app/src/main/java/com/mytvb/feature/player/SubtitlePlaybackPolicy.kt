@@ -76,12 +76,21 @@ internal fun shouldAutoLoadExternalSubtitle(tracks: List<SubtitleInfoModel>): Bo
     return false
 }
 
-internal fun orderSubtitleTracksByPreference(tracks: List<SubtitleInfoModel>): List<SubtitleInfoModel> =
-    tracks.sortedWith(
-        compareByDescending<SubtitleInfoModel> { !isLikelyAiSubtitleTrack(it) }
-            .thenByDescending { it.id }
-            .thenBy { it.lanDoc }
+/**
+ * 字幕列表展示顺序（v2.1.15 起统一口径）：
+ * 1. 用户设备语言的人工/CC 字幕置顶；
+ * 2. AI 字幕（ai-zh 等，含 AI 中文字幕）次之；
+ * 3. 其余语言保持服务端原始顺序（稳定排序不重排）。
+ * 原实现「AI 全置顶 + id 降序」会把中文人工字幕压到列表底部，用户难以找到。
+ */
+internal fun orderSubtitleTracksByPreference(tracks: List<SubtitleInfoModel>): List<SubtitleInfoModel> {
+    val deviceLanguage = java.util.Locale.getDefault().language.ifBlank { "zh" }
+    return tracks.sortedWith(
+        compareByDescending<SubtitleInfoModel> {
+            !isLikelyAiSubtitleTrack(it) && it.lan.startsWith(deviceLanguage, ignoreCase = true)
+        }.thenByDescending { !isLikelyAiSubtitleTrack(it) }
     )
+}
 
 internal fun normalizeBilibiliSubtitleUrl(rawUrl: String): String {
     val trimmed = rawUrl.trim()

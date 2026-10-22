@@ -29,7 +29,6 @@ import com.mytvb.core.ui.layout.WrapContentGridLayoutManager
 import com.mytvb.core.common.content.ContentFilter
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.core.common.log.PagePerfLogger
-import com.mytvb.core.ui.focus.SpatialFocusNavigator
 import com.mytvb.core.ui.focus.TabContentFocusHelper
 import com.mytvb.core.ui.focus.tv.GridTvFocusStrategy
 import com.mytvb.core.ui.focus.tv.TvDataChangeReason
@@ -961,17 +960,9 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     }
 
     override fun focusPrimaryContent(anchorView: View?, preferSpatialEntry: Boolean): Boolean {
-        if (preferSpatialEntry) {
-            val handled = SpatialFocusNavigator.requestBestDescendant(
-                anchorView = anchorView,
-                root = binding.recyclerView,
-                direction = View.FOCUS_RIGHT,
-                fallback = null
-            )
-            if (handled) {
-                return true
-            }
-        }
+        // 从侧栏按右进入：恒定位第一行第一个，不再按锚点(「我的」按钮偏下)做空间
+        // 搜索——空间搜索会落到与按钮同一水平线的第二行卡片（v2.1.14 反馈），
+        // 与其他页面"进入即第一行第一项"的口径不一致
         return focusPrimaryContent()
     }
 
@@ -994,17 +985,21 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             if (!isAdded || view == null) return@post
             val focused = rv.findFocus()
             if (focused == null) return@post
-            val itemView = rv.findContainingItemView(focused) ?: return@post
+            // 以聚焦视图自身（而非 containing item）计算补偿，与 BaseListFragment
+            // 同口径：item 高于视口时按 item 补偿会把顶部内容整段顶出屏
+            val focusRect = android.graphics.Rect()
+            focused.getDrawingRect(focusRect)
+            rv.offsetDescendantRectToMyCoords(focused, focusRect)
             val padTop = rv.paddingTop
             val visibleBottom = rv.height - rv.paddingBottom
             val delta = when {
-                itemView.top < padTop -> itemView.top - padTop
-                itemView.bottom > visibleBottom -> itemView.bottom - visibleBottom
+                focusRect.top < padTop -> focusRect.top - padTop
+                focusRect.bottom > visibleBottom -> focusRect.bottom - visibleBottom
                 else -> 0
             }
             com.mytvb.core.common.log.AppLog.d(
                 "DownFocus",
-                "[me] post focusedItem top=${itemView.top} bottom=${itemView.bottom} padTop=$padTop visibleBottom=$visibleBottom delta=$delta"
+                "[me] post focusTop=${focusRect.top} focusBottom=${focusRect.bottom} padTop=$padTop visibleBottom=$visibleBottom delta=$delta"
             )
             if (delta != 0) {
                 rv.scrollBy(0, delta)

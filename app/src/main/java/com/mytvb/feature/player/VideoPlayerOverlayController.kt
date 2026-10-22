@@ -63,7 +63,10 @@ class VideoPlayerOverlayController(
         const val SEASON_GROUP_SIZE = 50
     }
 
-    fun showChooseEpisodeDialog() {
+    /** 当前面板打开时控制栏处于隐藏态且未强制拉起（隐藏态 UP 直达），关闭后应保持隐藏。 */
+    private var controllerWasHiddenForOverlay: Boolean = false
+
+    fun showChooseEpisodeDialog(fromHiddenDpad: Boolean = false) {
         val episodes = sessionCoordinator.getEpisodes()
         val selectedEpisodeIndex = sessionCoordinator.getSelectedEpisodeIndex()
         if (episodes.isEmpty()) {
@@ -71,11 +74,11 @@ class VideoPlayerOverlayController(
             return
         }
         if (episodes.firstOrNull()?.source == VideoPlayerViewModel.EpisodeCatalogSource.UGC_SEASON) {
-            showSeasonEpisodeDialog(episodes, selectedEpisodeIndex)
+            showSeasonEpisodeDialog(episodes, selectedEpisodeIndex, fromHiddenDpad)
             return
         }
         overlayCoordinator.rememberFocusRestoreTarget(PlayerOverlayCoordinator.FocusTarget.EPISODE_BUTTON)
-        keepControllerVisibleForOverlay()
+        keepControllerVisibleForOverlay(forceShowController = !fromHiddenDpad)
         uiCoordinator.transition(UiEvent.PanelOpened(PanelType.EPISODE))
 
         val dialog = AppCompatDialog(activity, R.style.DialogTheme)
@@ -249,10 +252,11 @@ class VideoPlayerOverlayController(
      */
     private fun showSeasonEpisodeDialog(
         episodes: List<VideoPlayerViewModel.PlayableEpisode>,
-        selectedEpisodeIndex: Int
+        selectedEpisodeIndex: Int,
+        fromHiddenDpad: Boolean = false
     ) {
         overlayCoordinator.rememberFocusRestoreTarget(PlayerOverlayCoordinator.FocusTarget.EPISODE_BUTTON)
-        keepControllerVisibleForOverlay()
+        keepControllerVisibleForOverlay(forceShowController = !fromHiddenDpad)
         uiCoordinator.transition(UiEvent.PanelOpened(PanelType.EPISODE))
 
         // BACK 拦截：AppCompat 的 OnBackPressedDispatcher 会在窗口层截走 BACK、
@@ -715,22 +719,34 @@ class VideoPlayerOverlayController(
         ).showPanel()
     }
 
-    private fun keepControllerVisibleForOverlay() {
-        if (!playerView.isControllerFullyVisible()) {
+    /**
+     * 面板打开期间保持控制栏可见：挂起自动隐藏调度（show 动画结束回调的
+     * 重挂也被拦截，否则面板开着约 3 秒后控制栏会自动缩回）。
+     *
+     * @param forceShowController false=控制栏隐藏态直达面板（控制栏隐藏时按 UP
+     * 直达选集/合集）：不强制拉起控制栏，面板关闭后也保持隐藏（v2.1.14 反馈）。
+     */
+    private fun keepControllerVisibleForOverlay(forceShowController: Boolean = true) {
+        controllerWasHiddenForOverlay =
+            !forceShowController && !playerView.isControllerFullyVisible()
+        if (forceShowController && !playerView.isControllerFullyVisible()) {
             playerView.showController()
         }
-        playerView.removeControllerHideCallbacks()
+        playerView.setControllerHideCallbacksSuspended(true)
     }
 
     private fun restoreControllerAfterOverlay() {
-        if (!playerView.isControllerFullyVisible()) {
+        val keepHidden = controllerWasHiddenForOverlay
+        controllerWasHiddenForOverlay = false
+        if (!keepHidden && !playerView.isControllerFullyVisible()) {
             playerView.showController()
         }
         // 延迟请求焦点，等控制器完全显示后再恢复，避免控制器还在隐藏/动画状态导致焦点请求失败
         playerView.post {
             overlayCoordinator.restoreFocus(playerView)
         }
-        playerView.resetControllerHideCallbacks()
+        // 解除挂起并立即按当前可见状态恢复一次自动隐藏调度
+        playerView.setControllerHideCallbacksSuspended(false)
     }
 
     private fun restoreControllerAfterRelatedPanel() {
@@ -738,7 +754,7 @@ class VideoPlayerOverlayController(
         // Only restore focus and reset auto-hide timers — avoid calling showController() which
         // posts requestPlayPauseFocus() and causes a visible focus flicker.
         playerView.restoreRememberedFocus()
-        playerView.resetControllerHideCallbacks()
+        playerView.setControllerHideCallbacksSuspended(false)
     }
 
     private fun setupRelatedPanelFocusTrap() {

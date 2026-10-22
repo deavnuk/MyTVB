@@ -121,6 +121,9 @@ class MyPlayerSettingView @JvmOverloads constructor(
     /** 倍速子菜单是否由控制栏"播放速度"按键直入（BACK/选完档位应整体关面板而非回主菜单）。 */
     private var speedMenuEnteredFromController = false
 
+    /** 字幕子菜单是否由控制栏"字幕"按键直入（BACK/选完轨道应整体关面板而非回主菜单）。 */
+    private var subtitleMenuEnteredFromController = false
+
     init {
         LayoutInflater.from(context).inflate(R.layout.my_player_setting_view, this, true)
         recyclerView = findViewById(R.id.recyclerView)
@@ -153,6 +156,7 @@ class MyPlayerSettingView @JvmOverloads constructor(
         animate().cancel()
         if (!show) {
             speedMenuEnteredFromController = false
+            subtitleMenuEnteredFromController = false
             animate()
                 .translationX(panelWidthPx.toFloat())
                 .alpha(0f)
@@ -214,6 +218,14 @@ class MyPlayerSettingView @JvmOverloads constructor(
             // （与直播清晰度/线路同模式）；从主菜单点进来的仍回主菜单。
             adapter.currentMenuKey == ITEM_PLAYBACK_SPEED && speedMenuEnteredFromController -> {
                 speedMenuEnteredFromController = false
+                showHide(false)
+                true
+            }
+
+            // 控制栏字幕按钮直入的子菜单：BACK 直接关闭整个面板，不回总设置主菜单
+            // （与倍速同模式）；从主菜单点进来的仍回主菜单。
+            adapter.currentMenuKey == ITEM_SUBTITLE && subtitleMenuEnteredFromController -> {
+                subtitleMenuEnteredFromController = false
                 showHide(false)
                 true
             }
@@ -375,9 +387,12 @@ class MyPlayerSettingView @JvmOverloads constructor(
 
     fun showSubtitleMenu() {
         if (!isShowing()) {
+            subtitleMenuEnteredFromController = true
             showHide(true)
             post { showSubtitles() }
         } else {
+            // 面板已显示（从总设置主菜单进入）：不标记，BACK/选完仍回主菜单
+            subtitleMenuEnteredFromController = false
             showSubtitles()
         }
     }
@@ -623,7 +638,12 @@ class MyPlayerSettingView @JvmOverloads constructor(
             adapter.currentMenuKey == ITEM_SUBTITLE && (itemId == -1 || itemId in panelState.subtitles.indices) -> {
                 updateState { it.copy(currentSubtitlePosition = itemId) }
                 onPlayerSettingChange?.onSubtitleChange(itemId)
-                goBackToMainMenu()
+                if (subtitleMenuEnteredFromController) {
+                    subtitleMenuEnteredFromController = false
+                    showHide(false)
+                } else {
+                    goBackToMainMenu()
+                }
             }
 
             adapter.currentMenuKey == ITEM_VIDEO_CODEC && itemId in panelState.videoCodecs.indices -> {

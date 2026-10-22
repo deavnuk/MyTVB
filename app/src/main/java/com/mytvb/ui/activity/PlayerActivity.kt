@@ -1169,7 +1169,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             viewModel.sponsorUserSeek(positionMs)
         }
         playerView.onChapterPanelRequestListener = { showChapterDialog() }
-        playerView.onEpisodePanelRequestListener = { showChooseEpisodeDialog() }
+        // UP 直达选集/合集面板来自控制栏隐藏态：不弹控制栏，面板关闭后保持隐藏
+        playerView.onEpisodePanelRequestListener = { showChooseEpisodeDialog(fromHiddenDpad = true) }
         renderControllerChrome(View.GONE)
     }
 
@@ -2120,7 +2121,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         overlayUiController.hideContentPanel()
     }
 
-    private fun showChooseEpisodeDialog() { overlayUiController.showChooseEpisodeDialog() }
+    private fun showChooseEpisodeDialog(fromHiddenDpad: Boolean = false) {
+        overlayUiController.showChooseEpisodeDialog(fromHiddenDpad)
+    }
     private fun showChapterDialog() {
         val points = viewModel.viewPoints.value
         if (points.isEmpty()) return

@@ -1111,6 +1111,10 @@ class MyPlayerControlView @JvmOverloads constructor(
         controlViewLayoutManager.resetHideCallbacks()
     }
 
+    fun setHideCallbacksSuspended(suspended: Boolean) {
+        controlViewLayoutManager.setHideCallbacksSuspended(suspended)
+    }
+
     fun setAnimationEnabled(enabled: Boolean) {
         controlViewLayoutManager.setAnimationEnabled(enabled)
     }

@@ -48,6 +48,8 @@ class CctvVodWebViewHost(
     private var customViewCallback: Any? = null
 
     init {
+        // canLoadX5 已被 X5 SDK 标弃用但无等价替代 API，维持原判定
+        @Suppress("DEPRECATION")
         val canLoadX5 = runCatching { QbSdk.canLoadX5(context) }.getOrDefault(false)
         val x5 = if (canLoadX5) {
             runCatching { createX5WebView() }
@@ -258,6 +260,8 @@ class CctvVodWebViewHost(
         // 主动 requestFocus 把焦点抢回网页层；不阻断的话控制条按钮永远拿不到焦点。
         wv.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         wv.settings.apply {
+            // X5 WebSettings 弃用了该 setter 但未提供等价替代 API，维持原开关
+            @Suppress("DEPRECATION")
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false

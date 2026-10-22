@@ -155,6 +155,13 @@ class SeekSession(
 
     fun isSeeking(): Boolean = mode != Mode.NONE
 
+    /**
+     * HOLD 会话是否已产生位移（首 tick 已跑过）。startMs 由首个 doTick 置位，
+     * 起表延迟已到但首个 40ms tick 未跑的零位移窗口里为 false——此时松手
+     * 应回退成短按轻跳，而不是按长按收尾原地提交。
+     */
+    fun hasHoldProgress(): Boolean = mode == Mode.HOLD && startMs != 0L
+
     fun isForwardDirection(): Boolean = isForward
 
     private fun doTick() {

@@ -42,7 +42,8 @@ class SeriesDetailContentAdapter(
         ) : Row
 
         data class Episodes(
-            val items: List<EpisodeModel>
+            val items: List<EpisodeModel>,
+            val currentEpId: Long = 0L
         ) : Row
 
         data class Section(
@@ -147,7 +148,7 @@ class SeriesDetailContentAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val row = getItem(position)) {
             is Row.Header -> (holder as HeaderViewHolder).bind(row.detail, row.followed)
-            is Row.Episodes -> (holder as EpisodeLaneViewHolder).bind(row.items)
+            is Row.Episodes -> (holder as EpisodeLaneViewHolder).bind(row.items, row.currentEpId)
             is Row.Section -> (holder as SectionLaneViewHolder).bind(row.section)
             is Row.Seasons -> (holder as SeasonLaneViewHolder).bind(row.title, row.items)
             is Row.Recommend -> (holder as RecommendLaneViewHolder).bind(row.items)
@@ -317,6 +318,7 @@ class SeriesDetailContentAdapter(
         )
         private var inReverseOrder = false
         private var items: List<EpisodeModel> = emptyList()
+        private var currentEpId: Long = 0L
         private var orderButtonFocused = false
 
         init {
@@ -355,10 +357,12 @@ class SeriesDetailContentAdapter(
             }
         }
 
-        fun bind(items: List<EpisodeModel>) {
+        fun bind(items: List<EpisodeModel>, currentEpId: Long) {
             binding.topTitle.setText(R.string.episodes)
             this.items = items
-            inReverseOrder = true
+            this.currentEpId = currentEpId
+            // 默认正序：没看过的番剧从第 1 集开始往后排列
+            inReverseOrder = false
             binding.buttonOrder.visibility = if (items.size > 1) View.VISIBLE else View.GONE
             if (binding.buttonOrder.visibility != View.VISIBLE) {
                 orderButtonFocused = false
@@ -368,14 +372,32 @@ class SeriesDetailContentAdapter(
 
         private fun bindEpisodes() {
             submitOrderedItems()
-            binding.textOrder.setText(R.string.negative_sequence)
+            binding.textOrder.setText(R.string.positive_sequence)
         }
 
         // 倒序通过提交反转列表实现：reverseLayout 会让铺不满一行的内容整体靠右
         private fun submitOrderedItems() {
-            adapter.submitList(if (inReverseOrder) items.asReversed() else items)
-            // 反序时列表已反转，最新一集位于第 0 位
-            binding.recyclerView.scrollToPosition(0)
+            val ordered = if (inReverseOrder) items.asReversed() else items
+            adapter.currentEpId = currentEpId
+            adapter.submitList(ordered)
+            scrollToCurrentEpisode(ordered)
+        }
+
+        // 看过→定位上次看的那集（居中偏左，UGC 详情页合集列表同款）；
+        // 没看过/进度集不在列表→回到首位（正序=第 1 集）
+        private fun scrollToCurrentEpisode(ordered: List<EpisodeModel>) {
+            val index = if (currentEpId > 0L) {
+                ordered.indexOfFirst { it.id == currentEpId }
+            } else {
+                -1
+            }
+            val llm = binding.recyclerView.layoutManager as? LinearLayoutManager ?: return
+            if (index > 0) {
+                val halfItemWidth = (ScreenUtils.getScreenWidth(binding.root.context) / 5) / 3
+                llm.scrollToPositionWithOffset(index - 1, -halfItemWidth)
+            } else {
+                llm.scrollToPosition(0)
+            }
         }
 
         fun requestStoredFocus(): Boolean {
@@ -683,7 +705,7 @@ class SeriesDetailContentAdapter(
 
             detail.episodes.orEmpty()
                 .takeIf { it.isNotEmpty() }
-                ?.let { add(Row.Episodes(it)) }
+                ?.let { add(Row.Episodes(it, detail.userStatus?.progress?.lastEpId ?: 0L)) }
 
             detail.section.orEmpty()
                 .filter { it.episodes.isNotEmpty() }

@@ -9,6 +9,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.TextView
 
 import com.mytvb.core.ui.base.ChoiceDialog
@@ -198,7 +199,9 @@ class SearchNewFragment :
     }
 
     private fun setupInput() {
+        // 遥控默认用屏上键盘，不跟焦点弹出系统输入法；点按搜索栏才呼出（电视、触屏都走点击）
         binding.editText.showSoftInputOnFocus = false
+        binding.editText.setOnClickListener { showSystemInputMethod() }
 
         binding.editText.setOnKeyListener { view, keyCode, event ->
             if (event.action != KeyEvent.ACTION_DOWN) {
@@ -267,6 +270,20 @@ class SearchNewFragment :
     private fun setupKeyboard() {
         binding.viewKeyboard.setKeySelectListener(this)
         binding.viewKeyboard.setDispatchKeyDel(true)
+        // 按键懒构建，不在这里建的话首次进入键盘区域是空白，要等焦点移进去才画出来
+        binding.viewKeyboard.ensureBuilt()
+    }
+
+    private fun showSystemInputMethod() {
+        val editText = binding.editText
+        editText.requestFocus()
+        // 点击当帧焦点可能还没落到输入框，showSoftInput 会直接失败，等一帧再呼
+        editText.post {
+            if (!editText.isAttachedToWindow) return@post
+            val inputMethodManager = editText.context
+                .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            inputMethodManager?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 
     private fun setupKeywordColumns() {

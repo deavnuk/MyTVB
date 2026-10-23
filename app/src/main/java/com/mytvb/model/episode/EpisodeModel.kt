@@ -34,5 +34,11 @@ data class EpisodeModel(
     @SerializedName("vid")
     val vid: String = "",
     @SerializedName("pub_time")
-    val pubTime: Long = 0
+    val pubTime: Long = 0,
+    /**
+     * 0=正片，1=预告。pgc/view/web/season 的 episodes 会把预告集混进来；
+     * pgc/web/season/section 的正片分区不下发该字段，保持默认 0。
+     */
+    @SerializedName("section_type")
+    val sectionType: Int = 0
 ) : Serializable

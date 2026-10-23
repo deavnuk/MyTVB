@@ -74,6 +74,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         private const val CCTV_TAB_INDEX = 4
         private const val CCTV_VOD_TAB_INDEX = 5
         private const val SEARCH_TAB_INDEX = 7
+        private const val HOME_TAB_INDEX = 0
         private const val STARTUP_TAG = "AppStartup"
         private const val TEEN_REST_DIAG_TAG = "TeenRestDiag"
     }
@@ -769,6 +770,13 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
 
         mainNavigationViewModel.dispatch(MainNavigationViewModel.Event.BackPressed)
 
+        // 退出前先回主页：遥控只把焦点放到主页按钮（不切页，详情页栈留着）；
+        // 触屏没有焦点可停，直接切到主页。再按一次才是真正退出。
+        if (returnToHomeBeforeExit()) {
+            exitTime = 0L
+            return
+        }
+
         if (System.currentTimeMillis() - exitTime <= exitInterval) {
             finish()
             return
@@ -777,6 +785,27 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
         exitTime = System.currentTimeMillis()
         AppToast.show(this, getString(R.string.app_exit))
         schedulePostBackFocusRestore()
+    }
+
+    /**
+     * 退出链的最后一步。侧栏已经停在主页上时返回 false，交给双击退出；
+     * 否则遥控聚焦主页按钮、触屏切到主页，本次返回不算退出。
+     */
+    private fun returnToHomeBeforeExit(): Boolean {
+        if (binding.myTabView.visibility != View.VISIBLE) {
+            return false
+        }
+        if (binding.myTabView.isHomeTabFocused()) {
+            return false
+        }
+        if (binding.myTabView.isInTouchMode) {
+            if (binding.myTabView.isHomeTabSelected()) {
+                return false
+            }
+            onTabSelected(HOME_TAB_INDEX)
+            return true
+        }
+        return binding.myTabView.focusHomeTab()
     }
 
     private fun schedulePostBackFocusRestore() {

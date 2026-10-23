@@ -2720,7 +2720,9 @@ class MyPlayerView @JvmOverloads constructor(
 
     /** 控制栏"播放速度"按键入口：打开设置面板的倍速子菜单。 */
     fun showPlaybackSpeedSettingView() {
-        controller?.rememberCurrentFocusTarget()
+        // 不按「当前焦点」记：触屏点倍速按钮时遥控器焦点还停在暂停，
+        // 关掉列表就会跳回暂停。这个入口固定记倍速按钮。
+        controller?.rememberPlaySpeedTarget()
         settingView?.showPlaybackSpeedMenu()
     }
 
@@ -3019,6 +3021,10 @@ class MyPlayerView @JvmOverloads constructor(
 
     fun rememberCurrentFocusTarget() {
         controller?.rememberCurrentFocusTarget()
+    }
+
+    fun rememberPlaySpeedTarget() {
+        controller?.rememberPlaySpeedTarget()
     }
 
     fun restoreRememberedFocus() {

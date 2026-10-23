@@ -100,6 +100,11 @@ class KeyboardView @JvmOverloads constructor(
         }
     }
 
+    /** 搜索面板一出现就要能看见按键。按键是懒构建的，不提前建，首次进入整块是空白。 */
+    fun ensureBuilt() {
+        ensureKeyboardBuilt()
+    }
+
     fun requestPrimaryFocus(): Boolean {
         ensureKeyboardBuilt()
         return findFirstFocusableChild(keyboardContainer ?: this)?.requestFocus() == true

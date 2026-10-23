@@ -22,6 +22,7 @@ import androidx.media3.exoplayer.source.MediaSource
 import com.google.gson.Gson
 import com.mytvb.core.common.media.VideoCodecSupport
 
+import com.mytvb.model.episode.EpisodeListMerge
 import com.mytvb.model.dm.DmMaskRepository
 import com.mytvb.model.dm.DmModel
 import com.mytvb.model.interaction.InteractionModel
@@ -1921,7 +1922,13 @@ class VideoPlayerViewModel(
             ?.takeIf { it > 0L && it != seasonId }
             ?.let { apiService.getVideoEpisodeSections(it).result }
         val mergedDetail = detail.copy(
-            episodes = sectionResult?.mainSection?.episodes.orEmpty(),
+            // 与详情页同一规则：连载中正片后面补「下一集预告」，
+            // 否则上次看到预告集时播放器选集里没有这集，进度对不上。
+            episodes = EpisodeListMerge.mergeOngoingNextPreview(
+                mainEpisodes = sectionResult?.mainSection?.episodes.orEmpty(),
+                seasonEpisodes = detail.episodes.orEmpty(),
+                isFinished = detail.publish?.isFinish == 1
+            ),
             section = sectionResult?.section.orEmpty()
         )
         val episodeItems = episodeCatalogBuilder.buildPgcEpisodes(mergedDetail)

@@ -30,6 +30,7 @@ internal class PlayerControlFocusCoordinator(
     private val buttonLine: View,
     private val buttonClose: View,
     private val buttonBack: View,
+    private val buttonPlaySpeed: View,
     private val timeBar: View,
     private val bottomBar: ViewGroup
 ) {
@@ -55,7 +56,8 @@ internal class PlayerControlFocusCoordinator(
         LINE,
         CLOSE,
         BACK,
-        TIME_BAR
+        TIME_BAR,
+        PLAY_SPEED
     }
 
     private var focusRestoreTarget = FocusTarget.PLAY_PAUSE
@@ -217,6 +219,15 @@ internal class PlayerControlFocusCoordinator(
         requestFocusOrFallback(buttonSubtitle)
     }
 
+    fun requestPlaySpeedButtonFocus() {
+        requestFocusOrFallback(buttonPlaySpeed)
+    }
+
+    /** 倍速按钮被点开时记住它，关闭列表后焦点回到倍速而不是暂停。 */
+    fun rememberPlaySpeedTarget() {
+        focusRestoreTarget = FocusTarget.PLAY_SPEED
+    }
+
     fun rememberCurrentFocusTarget() {
         focusRestoreTarget = when {
             timeBar.isFocused -> FocusTarget.TIME_BAR
@@ -239,6 +250,7 @@ internal class PlayerControlFocusCoordinator(
             buttonLine.isFocused -> FocusTarget.LINE
             buttonClose.isFocused -> FocusTarget.CLOSE
             buttonBack.isFocused -> FocusTarget.BACK
+            buttonPlaySpeed.isFocused -> FocusTarget.PLAY_SPEED
             else -> FocusTarget.PLAY_PAUSE
         }
     }
@@ -266,6 +278,7 @@ internal class PlayerControlFocusCoordinator(
             FocusTarget.CLOSE -> requestViewOrFallback(buttonClose)
             FocusTarget.BACK -> requestViewOrFallback(buttonBack)
             FocusTarget.TIME_BAR -> requestViewOrFallback(timeBar, requireEnabled = true)
+            FocusTarget.PLAY_SPEED -> requestPlaySpeedButtonFocus()
         }
     }
 
@@ -289,7 +302,8 @@ internal class PlayerControlFocusCoordinator(
             buttonRefresh.isFocused ||
             buttonLine.isFocused ||
             buttonClose.isFocused ||
-            buttonBack.isFocused
+            buttonBack.isFocused ||
+            buttonPlaySpeed.isFocused
     }
 
     private fun requestFocusOrFallback(target: View) {

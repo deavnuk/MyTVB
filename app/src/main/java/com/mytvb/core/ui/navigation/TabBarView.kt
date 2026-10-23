@@ -248,6 +248,15 @@ class TabBarView @JvmOverloads constructor(
         return tabButtons.getOrNull(currentSelectedIndex)?.requestFocus() == true
     }
 
+    /** 只把焦点放到主页按钮，不切换页面。退出前多一步回到主页用。 */
+    fun focusHomeTab(): Boolean {
+        return buttonHome.requestFocus()
+    }
+
+    fun isHomeTabFocused(): Boolean = buttonHome.isFocused
+
+    fun isHomeTabSelected(): Boolean = currentSelectedIndex == tabButtons.indexOf(buttonHome)
+
     fun focusNearestButtonTo(anchorView: View?): Boolean {
         val candidates = buildList {
             add(buttonSearch)

@@ -244,6 +244,7 @@ class MyPlayerControlView @JvmOverloads constructor(
             buttonLine = buttonLine,
             buttonClose = buttonClose,
             buttonBack = buttonBack,
+            buttonPlaySpeed = buttonPlaySpeed,
             timeBar = timeBar,
             bottomBar = bottomBar
         )
@@ -944,6 +945,10 @@ class MyPlayerControlView @JvmOverloads constructor(
 
     fun rememberCurrentFocusTarget() {
         focusCoordinator.rememberCurrentFocusTarget()
+    }
+
+    fun rememberPlaySpeedTarget() {
+        focusCoordinator.rememberPlaySpeedTarget()
     }
 
     fun restoreRememberedFocus() {

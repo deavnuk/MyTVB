@@ -23,6 +23,12 @@ object AppLog {
     private const val LOGCAT_TAIL_LINES = 2000
     private const val LOGCAT_READ_TIMEOUT_MS = 2000L
 
+    // 快照导出目录与滚动上限；LEGACY 前缀是旧版导出文件，清理白名单与 LanLogServer 一致
+    private const val SNAPSHOT_DIR = "logs"
+    private const val SNAPSHOT_PREFIX = "mytvb_log_"
+    private const val LEGACY_SNAPSHOT_PREFIX = "myblbl_log_"
+    private const val SNAPSHOT_MAX_COUNT = 10
+
     // @Volatile：开关在主线程翻转，action/cache 等后台线程依赖其可见性做热路径门控。
     @Volatile
     var isEnabled = false
@@ -134,17 +140,35 @@ object AppLog {
                 SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
                     .format(System.currentTimeMillis())
             }.txt"
-            val logsDir = File(context.getExternalFilesDir(null), "logs").apply {
+            val logsDir = File(context.getExternalFilesDir(null), SNAPSHOT_DIR).apply {
                 if (!exists()) mkdirs()
             }
-            File(logsDir, fileName).apply {
+            val file = File(logsDir, fileName).apply {
                 // 写入 UTF-8 BOM，避免 Windows 记事本等编辑器因无 BOM 误判为 GBK 导致中文乱码
                 outputStream().buffered().use { out ->
                     out.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
                     out.write(formatLogsAsText().toByteArray(Charsets.UTF_8))
                 }
             }
+            trimSnapshots(logsDir)
+            file
         }.getOrNull()
+    }
+
+    /** 只保留最近 SNAPSHOT_MAX_COUNT 份快照（含旧版 myblbl_log_ 前缀）。 */
+    private fun trimSnapshots(dir: File) {
+        runCatching {
+            val files = dir.listFiles()
+                ?.filter {
+                    it.isFile && it.name.endsWith(".txt") &&
+                        (it.name.startsWith(SNAPSHOT_PREFIX) || it.name.startsWith(LEGACY_SNAPSHOT_PREFIX))
+                }
+                ?.sortedByDescending { it.lastModified() }
+                .orEmpty()
+            if (files.size > SNAPSHOT_MAX_COUNT) {
+                files.drop(SNAPSHOT_MAX_COUNT).forEach { it.delete() }
+            }
+        }
     }
 
     /** 内存缓冲 + 崩溃日志合成的纯文本（导出/快照共用格式）。 */

@@ -153,6 +153,13 @@
     <string name="live">直播</string>
     <string name="live_entry">直播入口</string>
     <string name="cctv_live">CCTV直播</string>
+    <string name="cast_receive">手機投屏</string>
+    <string name="cast_device_name">投屏裝置名稱</string>
+    <string name="cast_device_name_hint">手機B站App投屏清單裡顯示為「我的小電視」+你填的區分名</string>
+    <string name="cast_device_name_hint_example">如：客廳</string>
+    <string name="cast_device_name_reset">恢復預設</string>
+    <string name="cast_device_name_empty">裝置名稱不能為空</string>
+    <string name="cast_device_name_applied">手機投屏清單將顯示：%1$s</string>
     <string name="cctv_live_subtitle">央視頻道列表</string>
     <string name="cctv_player_hint">上下鍵切換頻道 · 確定鍵/點擊屏幕呼出控制列 · 選單鍵選擇頻道</string>
     <string name="cctv_channel_select">頻道選擇</string>

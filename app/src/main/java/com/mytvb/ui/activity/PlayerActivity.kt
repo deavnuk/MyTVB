@@ -48,6 +48,9 @@ import com.mytvb.core.ui.base.ScaledTextView
 import com.mytvb.core.ui.system.ViewUtils
 import com.mytvb.databinding.FragmentVideoPlayerBinding
 import com.mytvb.event.AppEventHub
+import com.mytvb.feature.cast.NvaCastController
+import com.mytvb.feature.cast.NvaPlayerBridge
+import com.mytvb.feature.cast.NvaPlayerSnapshot
 import com.mytvb.feature.player.PlayerInstancePool
 import com.mytvb.feature.player.PlaybackStartSeekResolver
 import com.mytvb.feature.player.PlaybackStartupTrace
@@ -105,6 +108,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         private const val EXTRA_STARTUP_TRACE_START_MS = "player_startup_trace_start_ms"
         /** 青少年模式-公益广告锁死模式：屏蔽所有操作，播完自动退出。 */
         private const val EXTRA_PSAS_LOCKED = "player_psas_locked"
+        /** 期望清晰度 qn（手机投屏下发；0=无偏好，走默认清晰度设置）。 */
+        private const val EXTRA_DESIRED_QN = "player_desired_qn"
         private var pendingPlayQueue: List<VideoModel> = emptyList()
 
         fun start(
@@ -120,7 +125,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             startEpisodeIndex: Int = -1,
             startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
             startupTraceStartElapsedMs: Long = 0L,
-            psasLocked: Boolean = false
+            psasLocked: Boolean = false,
+            desiredQn: Int = 0
         ) {
             val resolvedAid = aid.takeIf { it > 0L } ?: initialVideo?.aid ?: 0L
             val resolvedBvid = bvid.takeIf { it.isNotBlank() } ?: initialVideo?.bvid.orEmpty()
@@ -148,6 +154,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 putExtra(EXTRA_STARTUP_TRACE_ID, startupTraceId)
                 putExtra(EXTRA_STARTUP_TRACE_START_MS, startupTraceStartElapsedMs)
                 if (psasLocked) putExtra(EXTRA_PSAS_LOCKED, true)
+                if (desiredQn > 0) putExtra(EXTRA_DESIRED_QN, desiredQn)
             }
             val options = ActivityOptionsCompat.makeCustomAnimation(
                 context, R.anim.slide_in_to_right, R.anim.slide_out_to_left
@@ -247,6 +254,71 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private var player: ExoPlayer? = null
     private val uiCoordinator = PlaybackUiCoordinator()
+
+    /**
+     * 投屏桥接：手机端哔哩必连指令翻译到本地播放链路。
+     * [NvaCastController] 全部投递到主线程回调，这里无需加锁；
+     * pause/resume 与暂停按钮同款行为（弹幕渲染同步暂停/恢复）。
+     */
+    private val castBridge = object : NvaPlayerBridge {
+        override fun pause() {
+            player?.pause()
+            if (::playerView.isInitialized) playerView.pauseDanmaku()
+        }
+
+        override fun resume() {
+            player?.play()
+            if (::playerView.isInitialized) playerView.resumeDanmaku()
+        }
+
+        override fun stopAndExit() {
+            player?.stop()
+            finish()
+        }
+
+        override fun seekTo(positionMs: Long) {
+            player?.seekTo(positionMs.coerceAtLeast(0L))
+        }
+
+        override fun setSpeed(speed: Float) {
+            if (::playerView.isInitialized) playerView.setPlaySpeed(speed)
+        }
+
+        override fun setDanmakuEnabled(enabled: Boolean) {
+            if (::playerView.isInitialized) playerView.setDanmakuEnabled(enabled)
+        }
+
+        override fun selectQuality(qn: Int) {
+            if (qn <= 0) return
+            val qualities = viewModel.qualities.value
+            // 档位由 playurl 下发：优先精确匹配，其次不高于目标的最高档（手机端请求超权限
+            // 档位时收敛到本端可用档），全都不满足则忽略。
+            val target = qualities.firstOrNull { it.id == qn }
+                ?: qualities.filter { it.id <= qn }.maxByOrNull { it.id }
+                ?: return
+            val p = player ?: return
+            viewModel.selectVideoQuality(target, p.currentPosition, p.playWhenReady)
+        }
+
+        override fun stateSnapshot(): NvaPlayerSnapshot {
+            val p = player ?: return NvaPlayerSnapshot(playState = 7)
+            return NvaPlayerSnapshot(
+                durationSec = (p.duration / 1000L).coerceAtLeast(0L),
+                positionSec = (p.currentPosition / 1000L).coerceAtLeast(0L),
+                playState = mapNvaPlayState(p.playbackState, p.isPlaying),
+                currentQn = viewModel.selectedQuality.value?.id ?: 0,
+            )
+        }
+    }
+
+    /** Media3 播放状态 → NVA 约定：3 加载中 / 4 播放中 / 5 暂停 / 6 结束 / 7 停止。 */
+    private fun mapNvaPlayState(playbackState: Int, isPlaying: Boolean): Int =
+        when (playbackState) {
+            Player.STATE_BUFFERING -> 3
+            Player.STATE_READY -> if (isPlaying) 4 else 5
+            Player.STATE_ENDED -> 6
+            else -> 7
+        }
 
     // coordinator 状态（面板开关、chrome 超时等）变化后即时重算字幕让位高度
     private val coordinatorStateListener = object : PlaybackUiCoordinator.OnStateChangedListener {
@@ -657,6 +729,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
         val seekPositionMs = intent.getLongExtra(EXTRA_SEEK_MS, 0L)
         val startEpisodeIndex = intent.getIntExtra(EXTRA_START_EPISODE, -1)
+        val desiredQn = intent.getIntExtra(EXTRA_DESIRED_QN, 0)
         val shouldStartLoadBeforeUiInit = !initialized
         if (shouldStartLoadBeforeUiInit) {
             tagCheckDoneForCurrentVideo = false
@@ -671,7 +744,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 seekPositionMs = seekPositionMs,
                 startEpisodeIndex = startEpisodeIndex,
                 startupTraceId = startupTraceId,
-                startupTraceStartElapsedMs = startupTraceStartMs
+                startupTraceStartElapsedMs = startupTraceStartMs,
+                desiredQn = desiredQn
             )
         }
 
@@ -707,7 +781,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 seekPositionMs = seekPositionMs,
                 startEpisodeIndex = startEpisodeIndex,
                 startupTraceId = startupTraceId,
-                startupTraceStartElapsedMs = startupTraceStartMs
+                startupTraceStartElapsedMs = startupTraceStartMs,
+                desiredQn = desiredQn
             )
         }
     }
@@ -722,7 +797,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         seekPositionMs: Long,
         startEpisodeIndex: Int,
         startupTraceId: String,
-        startupTraceStartElapsedMs: Long
+        startupTraceStartElapsedMs: Long,
+        desiredQn: Int = 0
     ) {
         preparePlaybackUiForNewRequest()
         sessionCoordinator.replacePlayQueue(playQueue)
@@ -736,7 +812,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             seekPositionMs = seekPositionMs,
             startEpisodeIndex = startEpisodeIndex,
             startupTraceId = startupTraceId,
-            startupTraceStartElapsedMs = startupTraceStartElapsedMs
+            startupTraceStartElapsedMs = startupTraceStartElapsedMs,
+            desiredQn = desiredQn
         )
     }
 
@@ -758,7 +835,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         seekPositionMs: Long,
         startEpisodeIndex: Int,
         startupTraceId: String,
-        startupTraceStartElapsedMs: Long
+        startupTraceStartElapsedMs: Long,
+        desiredQn: Int = 0
     ) {
         viewModel.loadVideoInfo(
             aid = aid,
@@ -770,7 +848,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             startEpisodeIndex = startEpisodeIndex,
             startupTraceId = startupTraceId,
             startupTraceStartElapsedMs = startupTraceStartElapsedMs,
-            isSteinsGate = playQueue.firstOrNull()?.isSteinsGate == true
+            isSteinsGate = playQueue.firstOrNull()?.isSteinsGate == true,
+            preferredQualityId = desiredQn
         )
     }
 
@@ -1663,6 +1742,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         }
         playerView.removeCallbacks(resumePlaybackRunnable)
         playerView.postDelayed(resumePlaybackRunnable, 250L)
+        // 投屏桥接在播放页可见时注册，手机端由此恢复控制条状态
+        NvaCastController.get()?.attachBridge(castBridge)
     }
 
     override fun onResume() {
@@ -1717,6 +1798,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     override fun onDestroy() {
+        NvaCastController.get()?.detachBridge(castBridge)
         uninstallMainThreadJankMonitor()
         uiCoordinator.removeListener(coordinatorStateListener)
         playerView.removeCallbacks(resumePlaybackRunnable)

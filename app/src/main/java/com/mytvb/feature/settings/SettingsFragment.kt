@@ -30,6 +30,8 @@ import com.mytvb.R
 import com.mytvb.core.common.media.VideoCodecSupport
 import com.mytvb.core.common.update.ApkUpdater
 import com.mytvb.databinding.FragmentSettingsBinding
+import com.mytvb.feature.cast.NvaCastController
+import com.mytvb.feature.cast.NvaDevice
 import com.mytvb.feature.home.FeedSourceSetting
 import com.mytvb.model.SettingModel
 import com.mytvb.ui.adapter.SettingAdapter
@@ -100,6 +102,8 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
         private const val KEY_LIVE_ENTRY = "live_entry"
         private const val KEY_CCTV_LIVE_ENTRY = "cctv_live_entry"
         private const val KEY_CCTV_VOD_ENTRY = "cctv_vod_entry"
+        private const val KEY_CAST_RECEIVE = "cast_receive"
+        private const val KEY_CAST_DEVICE_NAME = "cast_device_name"
         private const val KEY_MINOR_PROTECTION = "minor_protection"
         private const val KEY_WATCH_TIME_LIMIT = "teen_watch_limit_min"
         private const val KEY_REST_TIME_LIMIT = "teen_rest_limit_min"
@@ -276,7 +280,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
                 stored(KEY_HOT_FEED_SOURCE, R.string.hot_feed_source, FeedSourceSetting.DEFAULT),
                 stored(KEY_LIVE_ENTRY, R.string.live_entry, "关"),
                 stored(KEY_CCTV_LIVE_ENTRY, R.string.cctv_live, "关"),
-                stored(KEY_CCTV_VOD_ENTRY, R.string.cctv_vod, "关")
+                stored(KEY_CCTV_VOD_ENTRY, R.string.cctv_vod, "关"),
+                // 投屏开关默认值直接读 cast 自有存储（不进 appSettings，冷启动即可读），
+                // 因此无需在 applyStored 段恢复
+                stored(KEY_CAST_RECEIVE, R.string.cast_receive, NvaDevice.receiveEnabledStored(requireContext())),
+                plain(KEY_CAST_DEVICE_NAME, R.string.cast_device_name, NvaDevice.displayName(requireContext()))
             )),
             SettingGroup(R.string.setting_group_interact, listOf(
                 stored(KEY_SHOW_VIDEO_DETAIL, R.string.show_video_detail_page, "关"),
@@ -708,6 +716,11 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
                 appSettings.putStringAsync(key, it)
                 (activity as? MainActivity)?.applyCctvVodEntryVisibility()
             }
+            KEY_CAST_RECEIVE -> toggle(key) { newValue ->
+                // 投屏开关存 cast 自有 SP（不进 appSettings），并立即生效（拉起/停止服务）
+                NvaCastController.setEnabled(requireContext(), newValue == "开")
+            }
+            KEY_CAST_DEVICE_NAME -> showCastDeviceNameDialog()
             KEY_SHOW_VIDEO_DETAIL -> toggle(key)
             KEY_DOUYIN_MODE -> toggle(key)
             KEY_GIVE_COIN_NUMBER -> showCommonChoiceDialog(key, arrayOf("1", "2"))
@@ -1993,6 +2006,161 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
         )
         dialog.show()
         actionContainer.getChildAt(0)?.requestFocus()
+    }
+
+    /** 投屏设备名输入弹窗：保存后立即重播 SSDP 通知，手机投屏列表无需重启即更新。 */
+    private fun showCastDeviceNameDialog() {
+        val px40 = resources.getDimensionPixelSize(R.dimen.px40)
+        val px35 = resources.getDimensionPixelSize(R.dimen.px35)
+        val px20 = resources.getDimensionPixelSize(R.dimen.px20)
+        val px18 = resources.getDimensionPixelSize(R.dimen.px18)
+        val px16 = resources.getDimensionPixelSize(R.dimen.px16)
+        val px14 = resources.getDimensionPixelSize(R.dimen.px14)
+        val px10 = resources.getDimensionPixelSize(R.dimen.px10)
+        val textColor = resources.getColor(R.color.textColor, null)
+
+        val dialog = AppCompatDialog(requireContext(), R.style.DialogTheme)
+        dialog.setCanceledOnTouchOutside(true)
+
+        val root = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.dialog_background)
+        }
+
+        root.addView(ScaledTextView(requireContext()).apply {
+            text = getString(R.string.cast_device_name)
+            setTextColor(textColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px36))
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(px40, px35, px40, px20)
+            layoutParams = lp
+        })
+
+        root.addView(View(requireContext()).apply {
+            setBackgroundColor(0x1FFFFFFF)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, resources.getDimensionPixelSize(R.dimen.px2))
+            lp.setMargins(px18, 0, px18, 0)
+            layoutParams = lp
+        })
+
+        // 手机端对设备名有前缀校验（必须「我的小电视」开头），本模块自动补前缀，
+        // 用户只填区分名（如「客厅」），提示里说明最终显示形态。
+        root.addView(ScaledTextView(requireContext()).apply {
+            text = getString(R.string.cast_device_name_hint)
+            setTextColor(0x99FFFFFF.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px26))
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(px40, px20, px40, 0)
+            layoutParams = lp
+        })
+
+        val editTextId = View.generateViewId()
+        val firstActionId = View.generateViewId()
+        val editText = EditText(requireContext()).apply {
+            id = editTextId
+            hint = getString(R.string.cast_device_name_hint_example)
+            inputType = EditorInfo.TYPE_CLASS_TEXT
+            setText(NvaDevice.savedName(requireContext()))
+            setTextColor(textColor)
+            setHintTextColor(0x80FFFFFF.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px30))
+            setPadding(px16, px16, px16, px16)
+            setBackgroundResource(R.drawable.bg_search_input)
+            nextFocusDownId = firstActionId
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, resources.getDimensionPixelSize(R.dimen.px150))
+            lp.setMargins(px40, px20, px40, 0)
+            layoutParams = lp
+        }
+        root.addView(editText)
+
+        val actionContainer = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(px18, px20, px18, px18)
+            layoutParams = lp
+        }
+
+        fun saveDeviceName() {
+            val raw = editText.text?.toString()?.trim().orEmpty()
+            if (raw.isEmpty()) {
+                AppToast.show(requireContext(), getString(R.string.cast_device_name_empty))
+                return
+            }
+            applyCastDeviceName(raw)
+            dialog.dismiss()
+        }
+
+        listOf(getString(R.string.cast_device_name_reset) to {
+                NvaDevice.setFriendlyName(requireContext(), NvaDevice.DEFAULT_FRIENDLY_NAME)
+                applyCastDeviceChanged()
+                dialog.dismiss()
+            },
+               getString(R.string.cancel) to { dialog.dismiss() },
+               getString(R.string.confirm_save) to { saveDeviceName() }).forEachIndexed { index, (text, action) ->
+            actionContainer.addView(ScaledTextView(requireContext()).apply {
+                this.text = text
+                setTextColor(textColor)
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.px32))
+                setPadding(px16, px14, px16, px14)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { action() }
+                setBackgroundResource(R.drawable.bg_dialog_button)
+                if (index == 0) {
+                    id = firstActionId
+                    nextFocusUpId = editTextId
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(px10, 0, px10, 0)
+            })
+        }
+
+        editText.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && event.action == KeyEvent.ACTION_DOWN) {
+                actionContainer.getChildAt(0)?.requestFocus()
+                true
+            } else {
+                false
+            }
+        }
+
+        root.addView(actionContainer)
+        DialogWindowFit.overlay(
+            dialog,
+            DialogWindowFit.wrapContentInScroll(requireContext(), root),
+            resources.getDimensionPixelSize(R.dimen.px800),
+            tag = "castDeviceName"
+        )
+        dialog.setOnShowListener { editText.requestFocus() }
+        dialog.show()
+    }
+
+    /**
+     * 写入设备名并让新广播立即生效。
+     *
+     * 三件事缺一不可：写 prefs（描述文档按它生成）→ 递增 BOOTID（手机端才会丢弃旧描述缓存）
+     * → 重播 SSDP 通知（新名字不必等下一轮 3 秒）。注意**不重建 socket**，
+     * 否则 1900 端口没及时释放会导致这台电视直接搜不到。
+     */
+    private fun applyCastDeviceName(rawName: String) {
+        val name = NvaDevice.normalizeFriendlyName(rawName).take(NvaDevice.MAX_FRIENDLY_NAME_LENGTH)
+        if (name.isBlank()) {
+            AppToast.show(requireContext(), getString(R.string.cast_device_name_empty))
+            return
+        }
+        NvaDevice.setFriendlyName(requireContext(), name)
+        applyCastDeviceChanged()
+    }
+
+    /** 名称已写入后的共同收尾：重播广播 + 更新设置条目显示 + Toast 告知最终显示名。 */
+    private fun applyCastDeviceChanged() {
+        NvaCastController.get()?.onDeviceNameChanged()
+        val shown = NvaDevice.displayName(requireContext())
+        updateInfo(KEY_CAST_DEVICE_NAME, shown)
+        AppLog.i("SettingsCast", "投屏设备名称已改，手机端显示为「$shown」")
+        AppToast.show(requireContext(), getString(R.string.cast_device_name_applied, shown))
     }
 
     private fun showGaiaVgateVoucherDialog() {

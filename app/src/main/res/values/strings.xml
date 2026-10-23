@@ -218,6 +218,13 @@
     <string name="live_entry">直播入口</string>
     <string name="cctv_live">CCTV直播</string>
     <string name="cctv_vod">CCTV影视</string>
+    <string name="cast_receive">手机投屏</string>
+    <string name="cast_device_name">投屏设备名称</string>
+    <string name="cast_device_name_hint">手机B站App投屏列表里显示为「我的小电视」+你填的区分名</string>
+    <string name="cast_device_name_hint_example">如：客厅</string>
+    <string name="cast_device_name_reset">恢复默认</string>
+    <string name="cast_device_name_empty">设备名称不能为空</string>
+    <string name="cast_device_name_applied">手机投屏列表将显示：%1$s</string>
     <string name="cctv_vod_subtitle">央视片库 · 电视剧 / 动画片 / 纪录片 / 特别节目</string>
     <string name="cctv_vod_filter_genre">类型</string>
     <string name="cctv_vod_filter_area">地区</string>

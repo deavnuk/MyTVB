@@ -80,6 +80,10 @@ class MyBLBLApplication : Application() {
         AppLog.init(this)
         // 全局提示浮层需要跟踪前台 Activity（挂 decorView，绕开系统 Toast 的宽度上限）
         com.mytvb.core.ui.base.AppToast.install(this)
+        // 哔哩必连接收端：让手机 B 站 App 能把视频投到本机（开关默认开；socket 绑定在后台线程，
+        // 不碰 Koin/网络初始化，不影响冷启动时序；开关关闭时零开销直接返回）
+        runCatching { com.mytvb.feature.cast.NvaCastController.install(this) }
+            .onFailure { AppLog.w(TAG, "NVA cast init failed", it) }
         // 播放进度本地缓存装载（文件小、毫秒级）：供续播插层与 UP 空间卡片进度使用
         com.mytvb.feature.player.progress.PlaybackProgressStore.init(this)
         // Toast 等使用 Application 级 Resources 的场景与 Activity 同倍率

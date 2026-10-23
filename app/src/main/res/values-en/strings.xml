@@ -153,6 +153,13 @@
     <string name="live">Live</string>
     <string name="live_entry">Live entry</string>
     <string name="cctv_live">CCTV Live</string>
+    <string name="cast_receive">Phone casting</string>
+    <string name="cast_device_name">Cast device name</string>
+    <string name="cast_device_name_hint">Shown in the bilibili app as 我的小电视 plus your suffix</string>
+    <string name="cast_device_name_hint_example">e.g. Living room</string>
+    <string name="cast_device_name_reset">Reset</string>
+    <string name="cast_device_name_empty">Device name cannot be empty</string>
+    <string name="cast_device_name_applied">Cast list will show: %1$s</string>
     <string name="cctv_live_subtitle">CCTV channel list</string>
     <string name="cctv_player_hint">Up/Down to switch channels · OK/tap to show controls · MENU for channel list</string>
     <string name="cctv_channel_select">Channels</string>

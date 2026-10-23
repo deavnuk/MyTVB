@@ -29,6 +29,7 @@ import com.mytvb.core.ui.base.AppToast
 import com.mytvb.core.ui.base.BaseActivity
 import com.mytvb.core.ui.base.OnBackPressedHandler
 import com.mytvb.model.user.UserDetailInfoModel
+import com.mytvb.feature.cast.NvaCastController
 import com.mytvb.feature.category.CategoryFragment
 import com.mytvb.feature.cctv.CctvLiveFragment
 import com.mytvb.feature.cctv.vod.CctvVodFragment
@@ -210,7 +211,22 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
                 }
             }
         }
+        // 投屏服务在"退出应用"时会被显式关闭（onDestroy），进程仍存活时再次进入
+        // 主界面必须重新拉起，否则第二次打开 App 后手机上搜不到设备。install 内部幂等。
+        runCatching { NvaCastController.install(this) }
+            .onFailure { AppLog.w(STARTUP_TAG, "NVA cast restart failed", it) }
         AppLog.i(STARTUP_TAG, "STARTUP T1c MainActivity.onCreate end elapsed=${SystemClock.elapsedRealtime() - createStartMs}ms totalFromActivityMs=${SystemClock.elapsedRealtime() - activityCreateStartMs}ms")
+    }
+
+    override fun onDestroy() {
+        // 双击返回键退出应用时只会 finish Activity，进程仍留在缓存态。
+        // 投屏服务（SSDP 组播 + 9958 长连接）是纯线程常驻，不会随 Activity 结束而停止，
+        // 于是"退出"之后手机还能继续搜到并投屏。这里在真正的退出路径上显式关闭。
+        if (isFinishing && !isChangingConfigurations) {
+            runCatching { NvaCastController.get()?.shutdown() }
+                .onFailure { AppLog.w(STARTUP_TAG, "NVA cast shutdown failed", it) }
+        }
+        super.onDestroy()
     }
 
     override fun initView() {

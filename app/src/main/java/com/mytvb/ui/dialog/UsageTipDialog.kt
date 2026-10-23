@@ -33,11 +33,12 @@ class UsageTipDialog(context: Context) : AppCompatDialog(context, R.style.Dialog
         binding.textScroll.maxHeight =
             (context.resources.displayMetrics.heightPixels * 0.65f).toInt()
 
+        // setOnClickListener 内部会自动 setClickable(true)，必须先挂监听再禁用，
+        // 否则倒计时期间遥控/触屏仍可点确定直接关掉提示。
+        binding.buttonConfirm.setOnClickListener { dismiss() }
         binding.buttonConfirm.setTextColor(Color.GRAY)
         binding.buttonConfirm.isClickable = false
         binding.buttonConfirm.text = context.getString(R.string.confirm_countdown, 10)
-
-        binding.buttonConfirm.setOnClickListener { dismiss() }
 
         binding.textContent.text =
             Html.fromHtml(context.getString(R.string.usage_tip_content), Html.FROM_HTML_MODE_COMPACT)

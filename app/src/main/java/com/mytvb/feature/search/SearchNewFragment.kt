@@ -282,7 +282,9 @@ class SearchNewFragment :
             if (!editText.isAttachedToWindow) return@post
             val inputMethodManager = editText.context
                 .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            inputMethodManager?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+            // flags=0 显式请求：SHOW_IMPLICIT 允许系统在用户曾手动收起等场景静默忽略
+            val accepted = inputMethodManager?.showSoftInput(editText, 0) ?: false
+            AppLog.d(TAG, "showSystemInputMethod: focused=${editText.isFocused} accepted=$accepted")
         }
     }
 

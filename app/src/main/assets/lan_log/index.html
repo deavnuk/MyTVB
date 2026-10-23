@@ -50,12 +50,31 @@
   .lv.W { color: var(--warn); } .lv.E { color: var(--err); } .lv.V { color: var(--text2); }
   .tg { color: var(--pink); }
   .ts { color: var(--text2); }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  /* fixed 布局：文件名单行跑马灯，其余列 nowrap，任何屏宽不折行不出框 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
   td, th { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
   th { color: var(--text2); font-weight: 500; }
+  th:nth-child(2) { width: 88px; }
+  th:nth-child(3) { width: 96px; }
+  th:nth-child(4) { width: 66px; }
   td.num { color: var(--text2); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  a.dl { color: var(--blue); text-decoration: none; cursor: pointer; }
-  a.dl:hover { text-decoration: underline; }
+  td.act { white-space: normal; }
+  /* 文件名跑马灯：溢出时 JS 加 .run，来回循环滚动（hover 暂停） */
+  .fname { overflow: hidden; white-space: nowrap; }
+  .fname span { display: inline-block; }
+  .fname.run span { animation: mq 7s linear infinite; }
+  .fname.run:hover span { animation-play-state: paused; }
+  @keyframes mq {
+    0%, 12% { transform: translateX(0); }
+    55%, 72% { transform: translateX(var(--shift, -40px)); }
+    100% { transform: translateX(0); }
+  }
+  a.btn {
+    display: inline-block; background: var(--card2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px;
+    font-size: 12px; line-height: 1.5; text-decoration: none; cursor: pointer;
+  }
+  a.btn:active { transform: scale(.97); }
   .empty { color: var(--text2); padding: 10px 0; }
   #overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none;
@@ -149,8 +168,10 @@
     if (!ms) return '-';
     var d = new Date(ms);
     function p(x) { return x < 10 ? '0' + x : x; }
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
-      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    var core = p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes());
+    // 窄屏再省掉秒给文件名列腾地方（时间列 nowrap 不折行）
+    return window.innerWidth < 600 ? core : d.getFullYear() + '-' + core + ':' + p(d.getSeconds());
   }
 
   // ── 状态卡 ──────────────────────────────────────────────
@@ -201,10 +222,23 @@
 
   // ── 文件列表 ────────────────────────────────────────────
   function fileRow(f, type) {
-    var dl = ' <a class="dl" download href="' + api('/api/files/download?type=' + type + '&name=' + encodeURIComponent(f.name)) + '">下载</a>';
-    var view = type === 'crash' ? ' <a class="dl" data-name="' + esc(f.name) + '">查看</a>' : '';
-    return '<tr><td>' + esc(f.name) + '</td><td class="num">' + fmtSize(f.size) +
-      '</td><td class="num">' + fmtTime(f.lastModified) + '</td><td class="num">' + view + dl + '</td></tr>';
+    var dl = ' <a class="btn" download href="' + api('/api/files/download?type=' + type + '&name=' + encodeURIComponent(f.name)) + '">下载</a>';
+    var view = type === 'crash' ? ' <a class="btn" data-name="' + esc(f.name) + '">查看</a>' : '';
+    return '<tr><td><div class="fname"><span>' + esc(f.name) + '</span></div></td>' +
+      '<td class="num">' + fmtSize(f.size) + '</td>' +
+      '<td class="num">' + fmtTime(f.lastModified) + '</td>' +
+      '<td class="act">' + view + dl + '</td></tr>';
+  }
+  // 渲染后检测文件名溢出，溢出的加 .run 跑马灯（--shift 为溢出量，留 8px 余量露全尾巴）
+  function setupMarquee() {
+    document.querySelectorAll('.fname').forEach(function (el) {
+      var t = el.querySelector('span');
+      var overflow = t.scrollWidth - el.clientWidth;
+      if (overflow > 4) {
+        el.style.setProperty('--shift', -(overflow + 8) + 'px');
+        el.classList.add('run');
+      }
+    });
   }
   function loadFiles() {
     fetch(api('/api/files/list')).then(function (r) { return r.json(); }).then(function (d) {
@@ -218,6 +252,7 @@
         if (!a) return;
         viewCrash(a.getAttribute('data-name'));
       });
+      setupMarquee();
     }).catch(function () {});
   }
   function viewCrash(name) {
@@ -237,7 +272,33 @@
   $('levelFilter').onchange = renderLogs;
   $('tagFilter').oninput = renderLogs;
   $('btnReloadFiles').onclick = loadFiles;
-  $('btnCreateSnapshot').onclick = function () { location.href = api('/api/snapshot/create-and-download'); };
+  // fetch 一次拉完再落地，不走 location.href：手机浏览器对 attachment 常是
+  // WebView 探测 + 下载器重发两次请求，服务端会落成对快照文件
+  $('btnCreateSnapshot').onclick = function () {
+    var btn = this;
+    if (!(window.Blob && window.URL && URL.createObjectURL)) {
+      location.href = api('/api/snapshot/create-and-download');
+      return;
+    }
+    btn.disabled = true;
+    fetch(api('/api/snapshot/create-and-download')).then(function (r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      var m = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+      var name = m ? m[1] : 'mytvb_log.txt';
+      return r.blob().then(function (b) { return { name: name, blob: b }; });
+    }).then(function (f) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(f.blob);
+      a.download = f.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+      loadFiles();
+    }).catch(function (e) {
+      alert('生成快照失败：' + e.message);
+    }).then(function () { btn.disabled = false; });
+  };
 
   setInterval(function () {
     if ($('autoRefresh').checked) loadLogs();

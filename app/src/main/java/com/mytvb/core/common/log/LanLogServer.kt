@@ -2,6 +2,7 @@ package com.mytvb.core.common.log
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import com.google.gson.Gson
 import com.mytvb.BuildConfig
 import java.io.BufferedInputStream
@@ -43,6 +44,9 @@ class LanLogServer(private val context: Context) {
         // 旧版导出前缀，白名单仍放行以便下载历史快照
         private const val LEGACY_SNAPSHOT_PREFIX = "myblbl_log_"
         private const val SOCKET_TIMEOUT_MS = 10_000
+        // 冷却期内重复请求复用同一份快照：手机浏览器对 attachment 下载常是
+        // WebView 探测 + 下载器重发两次请求（或用户双击），每次都新建会落成对文件
+        private const val SNAPSHOT_REUSE_WINDOW_MS = 10_000L
         private val gson = Gson()
     }
 
@@ -51,6 +55,12 @@ class LanLogServer(private val context: Context) {
 
     @Volatile
     private var acceptThread: Thread? = null
+
+    @Volatile
+    private var lastSnapshotFile: File? = null
+
+    @Volatile
+    private var lastSnapshotAtMs: Long = 0
 
     private var connectionPool: ExecutorService? = null
 
@@ -89,6 +99,8 @@ class LanLogServer(private val context: Context) {
         connectionPool?.shutdown()
         connectionPool = null
         acceptThread = null
+        lastSnapshotFile = null
+        lastSnapshotAtMs = 0
     }
 
     /** 展示用完整地址（首个非环回 IPv4）。 */
@@ -232,13 +244,27 @@ class LanLogServer(private val context: Context) {
     }
 
     private fun handleCreateSnapshot(socket: Socket) {
-        val file = AppLog.exportSnapshot()
+        val file = obtainSnapshot()
         if (file == null || !file.exists()) {
             respond(socket, 500, "Internal Server Error", "application/json; charset=utf-8",
                 """{"error":"create snapshot failed"}""")
             return
         }
         respondFile(socket, file)
+    }
+
+    /** 生成快照，冷却窗口内直接复用上一份，避免一次点击落成对文件。 */
+    private fun obtainSnapshot(): File? = synchronized(this) {
+        val last = lastSnapshotFile
+        if (last != null && last.exists() &&
+            SystemClock.elapsedRealtime() - lastSnapshotAtMs < SNAPSHOT_REUSE_WINDOW_MS
+        ) {
+            return last
+        }
+        val fresh = AppLog.exportSnapshot() ?: return null
+        lastSnapshotFile = fresh
+        lastSnapshotAtMs = SystemClock.elapsedRealtime()
+        fresh
     }
 
     // ── 文件白名单 ────────────────────────────────────────────────────

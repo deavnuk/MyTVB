@@ -44,4 +44,19 @@ data class NvaPlayerSnapshot(
     val playState: Int = 7,
     /** 当前清晰度 qn（0=未知/未就绪）。 */
     val currentQn: Int = 0,
+    /**
+     * 可选清晰度列表：手机端投屏面板的"分辨率"菜单内容完全来自 TV 端
+     * OnQnSwitch 回传里的 supportQnList，缺失时菜单一直停在"自动分辨率"。
+     */
+    val supportQnList: List<NvaQnOption> = emptyList(),
+)
+
+/** NVA supportQnList 单项（对齐官方 tv/playurl 的 accept_description 结构）。 */
+data class NvaQnOption(
+    val quality: Int,
+    val displayDesc: String,
+    val description: String,
+    val needVip: Boolean = false,
+    val needLogin: Boolean = false,
+    val superscript: String = "",
 )

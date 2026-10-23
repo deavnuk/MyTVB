@@ -355,7 +355,9 @@ internal class NvaSession(
         val immediateResult =
             when (method) {
                 "GetVolume" -> JSONObject().put("volume", controller.currentVolume())
-                "GetTVInfo" -> controller.tvInfo()
+                // 手机 B 站 App 实发 "GetTvInfo"（v 小写），与参考补丁的 "GetTVInfo" 并存兼容；
+                // 拼写漏匹配会让手机端拿不到 capability，投屏控制条"分辨率"永远停在自动。
+                "GetTVInfo", "GetTvInfo" -> controller.tvInfo()
                 "GetPlayInfo" -> controller.playInfo()
                 else -> null
             }

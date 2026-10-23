@@ -6,8 +6,10 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.mytvb.core.common.log.AppLog
 import com.mytvb.ui.activity.PlayerActivity
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -48,9 +50,13 @@ internal class NvaCastController private constructor() {
     private val sessions = CopyOnWriteArrayList<NvaSession>()
     private var lastReportedPlayState = -1
     private var lastReportedPositionSec = -1L
-    private var lastReportedQn = -1
+    private var lastReportedQnKey: String? = null
     private var tickScheduled = false
     private var tickRunnable: Runnable? = null
+
+    /** 手机端 dlna 面板模式对同一视频会连发两次 Play（间隔约 200~300ms），用于去重。 */
+    private var lastPlayKey: String? = null
+    private var lastPlayAtMs = 0L
 
     /** 健康检查节拍计数（每 tick 加一）与上次自愈时间。 */
     private var healthTickCounter = 0
@@ -110,8 +116,10 @@ internal class NvaCastController private constructor() {
         sessions.clear()
         bridge = null
         lastReportedPlayState = -1
-        lastReportedPositionSec = -1
-        lastReportedQn = -1
+        lastReportedPositionSec = -1L
+        lastReportedQnKey = null
+        lastPlayKey = null
+        lastPlayAtMs = 0L
         cachedPlayState = 7
         cachedPositionSec = 0L
         cachedDurationSec = 0L
@@ -180,8 +188,8 @@ internal class NvaCastController private constructor() {
         if (bridge === playerBridge) {
             bridge = null
             lastReportedPlayState = -1
-            lastReportedPositionSec = -1
-            lastReportedQn = -1
+            lastReportedPositionSec = -1L
+            lastReportedQnKey = null
             sessions.forEach { it.sendCommand("OnPlayState", JSONObject().put("playState", 7)) }
         }
     }
@@ -218,26 +226,26 @@ internal class NvaCastController private constructor() {
         when (method) {
             "Play" -> handlePlay(params)
             "PlayUrl" -> handlePlayUrl(params)
-            "Pause" -> onBridge { it.pause() }
-            "Resume" -> onBridge { it.resume() }
+            "Pause" -> onBridgeAndSync(session) { it.pause() }
+            "Resume" -> onBridgeAndSync(session) { it.resume() }
             "Stop" -> onBridge { it.stopAndExit() }
             "Seek" -> {
                 val seekTs = params?.optLong("seekTs", 0L) ?: 0L
-                onBridge { it.seekTo(seekTs.coerceAtLeast(0L) * 1000L) }
+                onBridgeAndSync(session) { it.seekTo(seekTs.coerceAtLeast(0L) * 1000L) }
             }
             "SwitchSpeed" -> {
                 val speed = params?.optDouble("speed", 1.0)?.toFloat() ?: 1f
-                onBridge { it.setSpeed(speed.coerceIn(0.25f, 4f)) }
+                onBridgeAndSync(session) { it.setSpeed(speed.coerceIn(0.25f, 4f)) }
             }
             "SwitchQn" -> {
                 val qn = params?.optInt("qn", 0) ?: 0
-                if (qn > 0) onBridge { it.selectQuality(qn) }
+                if (qn > 0) onBridgeAndSync(session) { it.selectQuality(qn) }
             }
             "SwitchDanmaku" -> {
                 // 注意：手机端下发的 open 是字符串 "true"/"false"
                 val raw = params?.opt("open")
                 val enabled = raw == true || raw?.toString()?.equals("true", ignoreCase = true) == true
-                onBridge { it.setDanmakuEnabled(enabled) }
+                onBridgeAndSync(session) { it.setDanmakuEnabled(enabled) }
             }
             "SetVolume" -> {
                 val volume = params?.optInt("volume", -1) ?: -1
@@ -247,7 +255,8 @@ internal class NvaCastController private constructor() {
                 // 发送弹幕需要 TV 端登录态，暂不实现；不影响接收与播放。
                 AppLog.i(tag, "忽略 SendDanmaku（未实现发送）")
             }
-            "GetTVInfo" -> Unit
+            // 正常走 NvaSession 的即时应答分支，不会到这里；保留两种拼写防客户端版本差异。
+            "GetTVInfo", "GetTvInfo" -> Unit
             else -> AppLog.w(tag, "未处理的命令: $method")
         }
     }
@@ -276,10 +285,23 @@ internal class NvaCastController private constructor() {
             return
         }
 
+        // 手机端 dlna 面板模式对同一视频会连发两次 Play（实测间隔 200~300ms），
+        // 第二次会触发整套 detail/playurl 重请求，加重风控（-400 请求错误），直接忽略。
+        val playKey = "$aid|$cid|$epId|$seasonId"
+        val now = SystemClock.elapsedRealtime()
+        if (playKey == lastPlayKey && now - lastPlayAtMs < PLAY_DEDUPE_WINDOW_MS) {
+            AppLog.i(tag, "忽略 ${now - lastPlayAtMs}ms 内的重复 Play key=$playKey")
+            return
+        }
+        lastPlayKey = playKey
+        lastPlayAtMs = now
+
         mainHandler.post {
             runCatching {
                 // PlayerActivity 已实现 onNewIntent 换源：在播时 CLEAR_TOP+singleTop
                 // 直接走 onNewIntent 切视频，无需像参考实现那样先 finish 旧实例。
+                // fromCast=true：跳过 tag 内容过滤，避免手机端选好的视频被 TV 端过滤
+                // 拦截后"投屏即退出"（拦截还会顺带拉黑+点踩，污染用户黑名单）。
                 PlayerActivity.start(
                     context = context,
                     aid = aid,
@@ -288,7 +310,12 @@ internal class NvaCastController private constructor() {
                     seasonId = seasonId,
                     seekPositionMs = seekTs.coerceAtLeast(0L) * 1000L,
                     desiredQn = desiredQn,
+                    fromCast = true,
                 )
+                // 手机端每次投新视频都会重置分辨率面板等待新的 OnQnSwitch；换源后
+                // 即使"当前档+可选档"指纹与上一视频相同也必须重发，否则面板永远
+                // 停在"自动分辨率"。置空指纹让下一个 tick（≤1s）强制下发完整列表。
+                lastReportedQnKey = null
             }.onFailure {
                 // 后台启动 Activity 受限（Android 10+）等场景会到这里，日志留痕。
                 AppLog.e(tag, "启动播放页失败（App 可能在后台，Android 10+ 限制后台启动界面）", it)
@@ -360,6 +387,11 @@ internal class NvaCastController private constructor() {
         val positionSec = snapshot.positionSec
         val playState = snapshot.playState
 
+        // 手机端"分辨率"菜单的档位列表完全来自 OnQnSwitch 的 supportQnList，
+        // 所以指纹含"当前档+可选档列表"：换视频后即使档位相同也要重发。
+        val qnKey = qnReportKey(snapshot)
+        val qnReportable = snapshot.currentQn > 0 || snapshot.supportQnList.isNotEmpty()
+
         sessions.forEach { session ->
             if (positionSec != lastReportedPositionSec || playState != session.lastPlayState) {
                 session.sendCommand(
@@ -373,18 +405,14 @@ internal class NvaCastController private constructor() {
                 session.sendCommand("OnPlayState", JSONObject().put("playState", playState))
             }
 
-            // 清晰度变化时同步给手机端，避免控制条显示与实际不符。
-            if (snapshot.currentQn > 0 && snapshot.currentQn != lastReportedQn) {
-                session.sendCommand(
-                    "OnQnSwitch",
-                    JSONObject().put("curQn", snapshot.currentQn).put("userDesireQn", snapshot.currentQn),
-                )
+            if (qnReportable && qnKey != lastReportedQnKey) {
+                session.sendCommand("OnQnSwitch", buildQnSwitchPayload(snapshot))
             }
         }
 
         lastReportedPositionSec = positionSec
         lastReportedPlayState = playState
-        if (snapshot.currentQn > 0) lastReportedQn = snapshot.currentQn
+        if (qnReportable) lastReportedQnKey = qnKey
     }
 
     private fun pushStateTo(session: NvaSession, force: Boolean) {
@@ -397,7 +425,40 @@ internal class NvaCastController private constructor() {
             session.lastPlayState = snapshot.playState
             session.sendCommand("OnPlayState", JSONObject().put("playState", snapshot.playState))
         }
+        // 手机端（重）连后必须立刻拿到可选清晰度列表，"分辨率"菜单才不会停在"自动"。
+        if (force && (snapshot.currentQn > 0 || snapshot.supportQnList.isNotEmpty())) {
+            session.sendCommand("OnQnSwitch", buildQnSwitchPayload(snapshot))
+        }
     }
+
+    /** 上次已上报的清晰度指纹：当前档 + 可选档序列。 */
+    private fun qnReportKey(snapshot: NvaPlayerSnapshot): String =
+        buildString {
+            append(snapshot.currentQn)
+            snapshot.supportQnList.forEach { append('|').append(it.quality) }
+        }
+
+    /** OnQnSwitch 载荷（结构对齐官方 TV 端，supportQnList 是手机端分辨率菜单的数据源）。 */
+    private fun buildQnSwitchPayload(snapshot: NvaPlayerSnapshot): JSONObject =
+        JSONObject()
+            .put("curQn", snapshot.currentQn)
+            .put("userDesireQn", snapshot.currentQn)
+            .put(
+                "supportQnList",
+                JSONArray().apply {
+                    snapshot.supportQnList.forEach { option ->
+                        put(
+                            JSONObject()
+                                .put("quality", option.quality)
+                                .put("displayDesc", option.displayDesc)
+                                .put("description", option.description)
+                                .put("needLogin", option.needLogin)
+                                .put("needVip", option.needVip)
+                                .put("superscript", option.superscript),
+                        )
+                    }
+                },
+            )
 
     // endregion
 
@@ -440,8 +501,26 @@ internal class NvaCastController private constructor() {
         }
     }
 
+    /**
+     * 执行控制命令后立刻向该手机强制同步一次完整状态。
+     *
+     * 幂等命令（如 TV 已在播放时收到 Resume）不会引起状态变化，常规 tick 只在
+     * 状态变化时才回传 OnPlayState——手机端面板会卡在旧状态，表现为"点暂停/
+     * 播放没反应"（实测用户连点 5 次 Resume）。命令回包 + 状态强推双通道对齐。
+     */
+    private fun onBridgeAndSync(session: NvaSession, block: (NvaPlayerBridge) -> Unit) {
+        mainHandler.post {
+            val playerBridge = bridge ?: return@post
+            runCatching { block(playerBridge) }.onFailure { AppLog.w(tag, "播放器操作失败", it) }
+            pushStateTo(session, force = true)
+        }
+    }
+
     companion object {
         private const val STATE_TICK_MS = 1_000L
+
+        /** 同一视频重复 Play 的去重窗口。 */
+        private const val PLAY_DEDUPE_WINDOW_MS = 800L
 
         /** 每 15 个 tick（约 15 秒）做一次 SSDP 健康检查。 */
         private const val HEALTH_CHECK_TICKS = 15

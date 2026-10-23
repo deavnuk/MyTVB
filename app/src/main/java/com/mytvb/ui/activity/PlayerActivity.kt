@@ -51,6 +51,7 @@ import com.mytvb.event.AppEventHub
 import com.mytvb.feature.cast.NvaCastController
 import com.mytvb.feature.cast.NvaPlayerBridge
 import com.mytvb.feature.cast.NvaPlayerSnapshot
+import com.mytvb.feature.cast.NvaQnOption
 import com.mytvb.feature.player.PlayerInstancePool
 import com.mytvb.feature.player.PlaybackStartSeekResolver
 import com.mytvb.feature.player.PlaybackStartupTrace
@@ -110,6 +111,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         private const val EXTRA_PSAS_LOCKED = "player_psas_locked"
         /** 期望清晰度 qn（手机投屏下发；0=无偏好，走默认清晰度设置）。 */
         private const val EXTRA_DESIRED_QN = "player_desired_qn"
+        /** 本次播放来自手机投屏：跳过 tag 内容过滤拦截（视频是用户手机端主动选的）。 */
+        private const val EXTRA_FROM_CAST = "player_from_cast"
         private var pendingPlayQueue: List<VideoModel> = emptyList()
 
         fun start(
@@ -126,7 +129,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
             startupTraceId: String = PlaybackStartupTrace.NO_TRACE,
             startupTraceStartElapsedMs: Long = 0L,
             psasLocked: Boolean = false,
-            desiredQn: Int = 0
+            desiredQn: Int = 0,
+            fromCast: Boolean = false
         ) {
             val resolvedAid = aid.takeIf { it > 0L } ?: initialVideo?.aid ?: 0L
             val resolvedBvid = bvid.takeIf { it.isNotBlank() } ?: initialVideo?.bvid.orEmpty()
@@ -155,6 +159,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 putExtra(EXTRA_STARTUP_TRACE_START_MS, startupTraceStartElapsedMs)
                 if (psasLocked) putExtra(EXTRA_PSAS_LOCKED, true)
                 if (desiredQn > 0) putExtra(EXTRA_DESIRED_QN, desiredQn)
+                if (fromCast) putExtra(EXTRA_FROM_CAST, true)
             }
             val options = ActivityOptionsCompat.makeCustomAnimation(
                 context, R.anim.slide_in_to_right, R.anim.slide_out_to_left
@@ -307,6 +312,18 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                 positionSec = (p.currentPosition / 1000L).coerceAtLeast(0L),
                 playState = mapNvaPlayState(p.playbackState, p.isPlaying),
                 currentQn = viewModel.selectedQuality.value?.id ?: 0,
+                supportQnList = viewModel.qualities.value
+                    .sortedByDescending { it.id }
+                    .map { q ->
+                        NvaQnOption(
+                            quality = q.id,
+                            displayDesc = q.resolution.ifBlank { q.name },
+                            description = q.name,
+                            // B 站档位规则：1080P 起需登录，1080P+/4K 等高码率档需大会员
+                            needVip = q.id >= 112,
+                            needLogin = q.id >= 80,
+                        )
+                    },
             )
         }
     }
@@ -414,6 +431,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     /** 青少年模式-公益广告锁死模式：屏蔽所有操作，播完自动退出。仅通过 EXTRA_PSAS_LOCKED 进入。 */
     private var psasLocked: Boolean = false
+
+    /** 本次播放由手机投屏下发：tag 内容过滤对投屏视频不生效（用户手机端主动选择的内容）。 */
+    private var castPlayback: Boolean = false
 
     // 抖音模式（编排逻辑已迁出至 DouyinPlaybackCoordinator）
     private lateinit var douyinCoordinator: DouyinPlaybackCoordinator
@@ -707,6 +727,7 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
 
     private fun handleIntent(intent: Intent) {
         psasLocked = intent.getBooleanExtra(EXTRA_PSAS_LOCKED, false)
+        castPlayback = intent.getBooleanExtra(EXTRA_FROM_CAST, false)
         val aid = intent.getLongExtra(EXTRA_AID, 0L)
         val bvid = intent.getStringExtra(EXTRA_BVID).orEmpty()
         val cid = intent.getLongExtra(EXTRA_CID, 0L)
@@ -1902,10 +1923,14 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
     }
 
     private fun isVideoBlockedByMinorProtection(video: VideoModel): Boolean {
+        // 投屏会话不做青少年保护拦截（含 tag 分支与综合判定分支）：内容是用户手机端
+        // 主动选的；开关开着时投来命中词表的视频会被"拉黑+点踩+退出播放页"。
+        if (castPlayback) return false
         return PlayerContentGuards.isVideoBlocked(this, video)
     }
 
     private fun isEpisodeBlockedByMinorProtection(episode: VideoPlayerViewModel.PlayableEpisode): Boolean {
+        if (castPlayback) return false
         return PlayerContentGuards.isEpisodeBlocked(this, episode)
     }
 
@@ -1915,6 +1940,9 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
         if (view.aid <= 0L && view.bvid.isBlank()) return
         tagCheckDoneForCurrentVideo = true
 
+        // 投屏来源跳过：tag 过滤用于净化本地推荐/搜索流，投屏是用户手机端主动选的视频，
+        // 拦截会造成"点击投屏直接退出播放页"（还会顺带触发拉黑+点踩的副作用请求）。
+        if (castPlayback) return
         if (!ContentFilter.isBlockedByTags(this, info.tags)) return
 
         AppLog.i(TAG, "Video blocked by tags: aid=${view.aid}, bvid=${view.bvid}, tags=${info.tags?.map { it.tagName }}")

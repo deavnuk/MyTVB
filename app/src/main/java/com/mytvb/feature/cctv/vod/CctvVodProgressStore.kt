@@ -13,6 +13,7 @@ object CctvVodProgressStore {
 
     private const val PREF_NAME = "cctv_vod_progress"
     private const val KEY_PREFIX = "ep_"
+    private const val KEY_LAST_PREFIX = "last_"
 
     /** 距片尾不足这个时长就算看完。 */
     private const val NEAR_END_MS = 30_000L
@@ -24,6 +25,9 @@ object CctvVodProgressStore {
         if (albumId.isBlank() || episodeIndex <= 0) return
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val key = keyOf(albumId, episodeIndex)
+        // 「最近播放到哪集」独立于分集进度记录：临近片尾的进度会被清掉，
+        // 但详情页仍要靠它定位上次观看的集。
+        prefs.edit().putInt(lastKeyOf(albumId), episodeIndex).apply()
         when {
             durationMs > 0 && positionMs >= durationMs - NEAR_END_MS ->
                 prefs.edit().remove(key).apply()
@@ -47,6 +51,15 @@ object CctvVodProgressStore {
             .edit().remove(keyOf(albumId, episodeIndex)).apply()
     }
 
+    /** 该专辑最近一次播放的集号，没看过返回 0。 */
+    fun loadLastEpisode(context: Context, albumId: String): Int {
+        if (albumId.isBlank()) return 0
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return prefs.getInt(lastKeyOf(albumId), 0)
+    }
+
     private fun keyOf(albumId: String, episodeIndex: Int): String =
         "$KEY_PREFIX${albumId}_$episodeIndex"
+
+    private fun lastKeyOf(albumId: String): String = "$KEY_LAST_PREFIX$albumId"
 }

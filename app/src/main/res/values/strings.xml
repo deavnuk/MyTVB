@@ -245,6 +245,7 @@
     <string name="cctv_vod_search_clear">清空</string>
     <string name="cctv_vod_search_ime">输入法</string>
     <string name="cctv_vod_episode_title_format">第%1$d集</string>
+    <string name="cctv_vod_last_watched">上次观看</string>
     <string name="cctv_vod_empty">暂无内容</string>
     <string name="cctv_vod_load_failed">加载失败，请重试</string>
     <string name="cctv_vod_episodes_loading">正在获取剧集…</string>

@@ -11,6 +11,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatDialog
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
@@ -206,10 +207,18 @@ class CctvVodDetailDialog(
         }
         binding.textEpisodeHint.visibility = View.GONE
         binding.recyclerView.visibility = View.VISIBLE
-        episodeAdapter.submit(episodes)
+        // 有上次观看记录就把初始焦点和滚动位置都定位到那一集，否则回第 1 集
+        val lastEpisode = CctvVodProgressStore.loadLastEpisode(context, album.id)
+        val focusPosition = episodes.indexOfFirst { it.index == lastEpisode }
+            .takeIf { it >= 0 } ?: 0
+        AppLog.i(TAG, "episodeFocus lastEpisode=$lastEpisode pos=$focusPosition size=${episodes.size}")
+        episodeAdapter.submit(episodes, lastEpisode)
+        if (focusPosition > 0) {
+            binding.recyclerView.scrollToPosition(focusPosition)
+        }
         binding.recyclerView.post {
             if (dismissed) return@post
-            binding.recyclerView.findViewHolderForAdapterPosition(0)
+            binding.recyclerView.findViewHolderForAdapterPosition(focusPosition)
                 ?.itemView?.requestFocus()
         }
     }
@@ -235,37 +244,73 @@ class CctvVodDetailDialog(
     ) : RecyclerView.Adapter<EpisodeAdapter.ViewHolder>() {
 
         private val items = ArrayList<CctvEpisode>()
+        private var lastEpisodeIndex = 0
 
-        fun submit(list: List<CctvEpisode>) {
+        fun submit(list: List<CctvEpisode>, lastEpisodeIndex: Int) {
             items.clear()
             items.addAll(list)
+            this.lastEpisodeIndex = lastEpisodeIndex
             notifyDataSetChanged()
         }
 
         override fun getItemCount(): Int = items.size
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-            return ViewHolder(createItemView(parent))
+            val (root, episodeText, lastWatchedTag) = createItemView(parent)
+            return ViewHolder(root, episodeText, lastWatchedTag)
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             holder.bind(items[position], position)
         }
 
-        private fun createItemView(parent: ViewGroup): AppCompatTextView {
+        /** 集数格子：外层格子承接焦点，右上角可挂「上次观看」小字标签。 */
+        private fun createItemView(
+            parent: ViewGroup
+        ): Triple<FrameLayout, AppCompatTextView, AppCompatTextView> {
             val context = parent.context
             val margin = context.resources.getDimensionPixelSize(R.dimen.px5)
-            return AppCompatTextView(context).apply {
+            val episodeText = AppCompatTextView(context).apply {
                 gravity = Gravity.CENTER
-                isFocusable = true
-                isClickable = true
                 setTypeface(typeface, Typeface.BOLD)
                 setTextSize(
                     TypedValue.COMPLEX_UNIT_PX,
                     context.resources.getDimension(R.dimen.px30)
                 )
                 setTextColor(episodeTextColors(context))
-                setBackgroundResource(R.drawable.cell_background)
+                // 焦点在格子（背景 selector）上，文字色 selector 靠复制父状态拿 focused 态
+                isDuplicateParentStateEnabled = true
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                )
+            }
+            val lastWatchedTag = AppCompatTextView(context).apply {
+                text = context.getString(R.string.cctv_vod_last_watched)
+                setTextSize(
+                    TypedValue.COMPLEX_UNIT_PX,
+                    context.resources.getDimension(R.dimen.px18)
+                )
+                setTextColor(ContextCompat.getColor(context, R.color.textColor))
+                visibility = View.GONE
+                // 与封面卡片右上角标同款：粉色底+右上/左下圆角，贴角无缝隙
+                setBackgroundResource(R.drawable.badge_background)
+                val padH = context.resources.getDimensionPixelSize(R.dimen.px7)
+                val padV = context.resources.getDimensionPixelSize(R.dimen.px3)
+                setPadding(padH, padV, padH, padV)
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP or Gravity.END
+                )
+            }
+            val root = FrameLayout(context).apply {
+                isFocusable = true
+                isClickable = true
+                setBackgroundResource(R.drawable.bg_cctv_vod_episode_cell)
+                addView(episodeText)
+                addView(lastWatchedTag)
                 layoutParams = RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     context.resources.getDimensionPixelSize(R.dimen.px80)
@@ -276,16 +321,27 @@ class CctvVodDetailDialog(
                     bottomMargin = margin
                 }
             }
+            return Triple(root, episodeText, lastWatchedTag)
         }
 
         inner class ViewHolder(
-            private val view: AppCompatTextView
-        ) : RecyclerView.ViewHolder(view) {
+            private val root: FrameLayout,
+            private val episodeText: AppCompatTextView,
+            private val lastWatchedTag: AppCompatTextView
+        ) : RecyclerView.ViewHolder(root) {
 
             fun bind(episode: CctvEpisode, position: Int) {
-                view.text = episode.index.toString().padStart(2, '0')
-                view.contentDescription = episode.title
-                view.setOnClickListener {
+                episodeText.text = episode.index.toString().padStart(2, '0')
+                root.contentDescription = episode.title
+                val isLast = episode.index == lastEpisodeIndex
+                lastWatchedTag.visibility = if (isLast) View.VISIBLE else View.GONE
+                // 角标胶囊占右上角，集号下移几像素避免贴碰
+                episodeText.translationY = if (isLast) {
+                    root.resources.getDimension(R.dimen.px6)
+                } else {
+                    0f
+                }
+                root.setOnClickListener {
                     val current = bindingAdapterPosition
                     if (current != RecyclerView.NO_POSITION) {
                         onClick(items[current])

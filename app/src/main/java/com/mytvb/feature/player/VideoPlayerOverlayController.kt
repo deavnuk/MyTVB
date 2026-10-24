@@ -287,14 +287,14 @@ class VideoPlayerOverlayController(
             }
         ).also { seasonDialogRef = it }
         dialog.setCanceledOnTouchOutside(true)
-        // 贴屏幕右侧、垂直居中；宽高由布局根节点固定（px600×px935），
-        // 卡片经 fill 载体右侧对齐，自动钳 92% 屏高
+        // 贴屏幕右侧、上下撑满整屏；宽 px600 固定，高走 fill 载体撑满
+        // （不钳 92%），列表随屏高获得最大可视区
         DialogWindowFit.overlay(
             dialog,
             LayoutInflater.from(activity).inflate(R.layout.dialog_choose_episode_season, null),
             activity.resources.getDimensionPixelSize(R.dimen.px600),
-            heightPx = activity.resources.getDimensionPixelSize(R.dimen.px935),
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL,
+            fillHeight = true,
+            gravity = Gravity.END,
             tag = "seasonEpisode"
         )
 

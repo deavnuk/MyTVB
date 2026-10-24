@@ -119,6 +119,9 @@ object DialogWindowFit {
      *   [wrapContentInScroll] 包裹——与 [apply] 时代的兜底结构完全复用）；
      *   >0=固定高卡片（布局根为 match_parent 的固定尺寸弹窗用此模式，
      *   自动钳屏高 92%）。
+     * @param fillHeight true=卡片高度撑满 fill 窗口（上下贴屏幕边），
+     *   忽略 [heightPx]/[maxHeightPx] 的钳制。窗口本身已 MATCH_PARENT，
+     *   卡片高度只是容器内布局协商，不经过窗口尺寸协商。
      * @param cancelOnOutside 点击卡片外的暗区是否关闭。fill 窗口没有「窗口外」
      *   点击，setCanceledOnTouchOutside 语义失效，由此参数以容器点击实现。
      */
@@ -130,6 +133,7 @@ object DialogWindowFit {
         cancelOnOutside: Boolean = true,
         maxHeightPx: Int = 0,
         gravity: Int = Gravity.CENTER,
+        fillHeight: Boolean = false,
         tag: String = "overlay"
     ): View {
         val context = dialog.context
@@ -140,13 +144,15 @@ object DialogWindowFit {
         } else {
             (dm.heightPixels * MAX_SCREEN_RATIO).toInt()
         }
-        val height = if (heightPx > 0) {
-            minOf(heightPx, maxHeight)
-        } else {
-            ViewGroup.LayoutParams.WRAP_CONTENT
+        val height = when {
+            fillHeight -> ViewGroup.LayoutParams.MATCH_PARENT
+            heightPx > 0 -> minOf(heightPx, maxHeight)
+            else -> ViewGroup.LayoutParams.WRAP_CONTENT
         }
         val container = ClampHeightFrameLayout(context)
-        container.maxHeightPx = maxHeight
+        // 撑满模式下跳过钳制：MATCH_PARENT 子项实测高恒等于容器高（屏高），
+        // 必大于 92% 钳值，不跳过会被压回 92% 高
+        container.maxHeightPx = if (fillHeight) Int.MAX_VALUE else maxHeight
         // 遮罩由容器自绘（blbl PopupHost 同款）而非系统 FLAG_DIM_BEHIND：
         // fill 窗口下系统 dim 的实际效果在不同系统上不一致（Android 15 实测
         // 不可感知），自绘保证任何载体下视觉恒定；clear 防止与系统 dim 叠加过暗。

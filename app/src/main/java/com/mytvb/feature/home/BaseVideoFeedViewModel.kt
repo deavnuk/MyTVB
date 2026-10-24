@@ -4,14 +4,17 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mytvb.core.common.content.ContentFilter
+import com.mytvb.core.common.log.AppLog
 import com.mytvb.model.video.VideoModel
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
 /**
  * 视频 Feed 分页骨架：初始加载/刷新/追加、状态流转、本地内容过滤与缓存回写。
@@ -21,6 +24,10 @@ abstract class BaseVideoFeedViewModel(
     context: Context,
     private val dislikeFeedback: RecommendDislikeFeedback
 ) : ViewModel(), VideoFeedViewModel {
+
+    companion object {
+        private const val TAG = "VideoFeedVM"
+    }
 
     protected val appContext = context.applicationContext
     protected val _uiState = MutableStateFlow(FeedUiState<VideoModel>())
@@ -103,33 +110,42 @@ abstract class BaseVideoFeedViewModel(
             listChange = FeedListChange.NONE
         )
 
-        fetchPage(page, replace, fromInitial, fromRefresh)
-            .onSuccess { result ->
-                val mergedItems = if (replace) {
-                    result.items
-                } else {
-                    current.items + result.items
+        // 登录瞬间推荐刷新"永久转圈"排查：finally 必然执行（含协程在挂起点被取消），
+        // active=false 即协程被取消——onSuccess/onFailure 都不跑，refreshing 状态残留
+        try {
+            fetchPage(page, replace, fromInitial, fromRefresh)
+                .onSuccess { result ->
+                    val mergedItems = if (replace) {
+                        result.items
+                    } else {
+                        current.items + result.items
+                    }
+                    currentPage = page
+                    _uiState.value = FeedUiState(
+                        items = mergedItems,
+                        source = FeedSource.NETWORK,
+                        listChange = if (replace) FeedListChange.REPLACE else FeedListChange.APPEND,
+                        hasMore = result.hasMore
+                    )
+                    if (mergedItems.isNotEmpty()) {
+                        writeCache(mergedItems)
+                    }
+                }.onFailure { throwable ->
+                    _uiState.value = current.copy(
+                        loadingInitial = false,
+                        refreshing = false,
+                        appending = false,
+                        errorMessage = errorMessage(throwable),
+                        listChange = FeedListChange.NONE
+                    )
+                    onPageFailed(page, throwable)
                 }
-                currentPage = page
-                _uiState.value = FeedUiState(
-                    items = mergedItems,
-                    source = FeedSource.NETWORK,
-                    listChange = if (replace) FeedListChange.REPLACE else FeedListChange.APPEND,
-                    hasMore = result.hasMore
-                )
-                if (mergedItems.isNotEmpty()) {
-                    writeCache(mergedItems)
-                }
-            }.onFailure { throwable ->
-                _uiState.value = current.copy(
-                    loadingInitial = false,
-                    refreshing = false,
-                    appending = false,
-                    errorMessage = errorMessage(throwable),
-                    listChange = FeedListChange.NONE
-                )
-                onPageFailed(page, throwable)
-            }
+        } finally {
+            AppLog.i(
+                TAG,
+                "loadPage finally page=$page replace=$replace refresh=$fromRefresh active=${coroutineContext.isActive} items=${_uiState.value.items.size}"
+            )
+        }
     }
 
     protected suspend fun filterForDisplay(items: List<VideoModel>): List<VideoModel> {

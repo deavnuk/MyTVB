@@ -90,7 +90,8 @@ object AppLog {
     fun init(context: Context) {
         appContext = context.applicationContext
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        isEnabled = prefs.getBoolean(KEY_ENABLED, false)
+        // debug 包默认开（排查依赖日志），release 默认关；用户手动设置后以 prefs 为准
+        isEnabled = prefs.getBoolean(KEY_ENABLED, BuildConfig.DEBUG)
         crashLogDir = File(context.filesDir, CRASH_LOG_DIR)
         installCrashHandler()
     }

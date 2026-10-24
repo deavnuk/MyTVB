@@ -30,6 +30,8 @@ object BiliClient {
 
     suspend fun getJson(url: String, extraHeaders: Map<String, String>? = null): JSONObject {
         return withContext(Dispatchers.IO) {
+            val endpoint = url.substringAfterLast("/").substringBefore("?")
+            AppLog.i(TAG, "getJson IO begin $endpoint")
             val t0 = SystemClock.elapsedRealtime()
             val reqBuilder = Request.Builder().url(url)
             extraHeaders?.forEach { (k, v) -> reqBuilder.header(k, v) }

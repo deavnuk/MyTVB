@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mytvb.MyBLBLApplication
 import com.mytvb.R
+import com.mytvb.model.common.CursorModel
 import com.mytvb.model.video.HistoryVideoModel
 import com.mytvb.model.video.VideoModel
 import com.mytvb.repository.UserRepository
@@ -41,7 +42,11 @@ class MeListViewModel(
     private val _continuationVideos = MutableStateFlow<List<HistoryVideoModel>?>(null)
     val continuationVideos: StateFlow<List<HistoryVideoModel>?> = _continuationVideos.asStateFlow()
 
+    // 历史游标三元组（官方文档：max+business+view_at 类似链表 next 指针）。
+    // 只带 view_at 时同一秒的相邻条目定位不了边界，跨页会丢/重条目（79/80 现象的根源）。
     private var historyCursorViewAt: Long = 0
+    private var historyCursorMax: Long = 0
+    private var historyCursorBusiness: String = ""
     private var lastHistoryPayloadSignature = ""
     private var lastLaterPayloadSignature = ""
     private var loadJob: Job? = null
@@ -105,6 +110,8 @@ class MeListViewModel(
 
             if (page == 1) {
                 historyCursorViewAt = 0
+                historyCursorMax = 0
+                historyCursorBusiness = ""
             }
 
             val t0 = System.currentTimeMillis()
@@ -115,7 +122,12 @@ class MeListViewModel(
                 // 否则 ?: 的优先级会让命中分支跳过整个成功处理链。
                 val response = (if (page == 1) feedPrewarmer.takeHistory() else null)
                     ?.let { Result.success(it) }
-                    ?: userRepository.getHistory(historyCursorViewAt, pageSize)
+                    ?: userRepository.getHistory(
+                        viewAt = historyCursorViewAt,
+                        pageSize = pageSize,
+                        max = historyCursorMax,
+                        business = historyCursorBusiness
+                    )
                 response
                     .onSuccess { response ->
                     if (!isActiveRequest(requestId)) {
@@ -136,15 +148,22 @@ class MeListViewModel(
                         val signature = historyListSignature(merged)
                         if (signature == lastHistoryPayloadSignature) {
                             AppLog.d("MePerf", "loadHistory: 跳过重复payload, page=$page, items=${merged.size}")
-                            _hasMore.value = rawList.size >= pageSize
+                            // 即使跳过渲染也必须推进游标：不推进的话下一页仍带旧游标请求，
+                            // 服务端原样重发同页 → 永远跳过 → 列表卡死不再增长。
+                            applyHistoryCursor(response.data.cursor, rawList)
+                            if (page > 1) {
+                                // 翻页却零新增（跨页去重后与已有完全一致）：服务端在重复发同页，
+                                // 再翻下去只会循环，直接判到底。
+                                _hasMore.value = false
+                            } else {
+                                _hasMore.value = rawList.size >= pageSize
+                            }
                             lastLoadedAt = System.currentTimeMillis()
                             return@onSuccess
                         }
                         lastHistoryPayloadSignature = signature
                         _uiState.value = _uiState.value.copy(historyVideos = merged)
-                        historyCursorViewAt = response.data.cursor?.viewAt
-                            ?: rawList.lastOrNull()?.viewAt
-                            ?: 0L
+                        applyHistoryCursor(response.data.cursor, rawList)
                         _hasMore.value = rawList.size >= pageSize
                         lastLoadedAt = System.currentTimeMillis()
                     } else {
@@ -408,6 +427,15 @@ class MeListViewModel(
 
     fun shouldRefresh(ttlMs: Long): Boolean {
         return System.currentTimeMillis() - lastLoadedAt >= ttlMs
+    }
+
+    /** 用服务端返回的 cursor（或页尾兜底）推进历史游标三元组。 */
+    private fun applyHistoryCursor(cursor: CursorModel?, rawList: List<HistoryVideoModel>) {
+        historyCursorViewAt = cursor?.viewAt
+            ?: rawList.lastOrNull()?.viewAt
+            ?: 0L
+        historyCursorMax = cursor?.max ?: 0L
+        historyCursorBusiness = cursor?.business.orEmpty()
     }
 
     private fun historyItemKey(item: HistoryVideoModel): String {

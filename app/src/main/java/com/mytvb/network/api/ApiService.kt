@@ -340,6 +340,8 @@ interface ApiService {
     @GET("x/web-interface/history/cursor")
     suspend fun getHistory(
         @Query("view_at") viewAt: Long,
+        @Query("max") max: Long = 0,
+        @Query("business") business: String = "",
         @Query("ps") ps: Int = 20
     ): BaseResponse<HistoryListResponse>
 

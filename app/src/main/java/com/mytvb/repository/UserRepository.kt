@@ -111,14 +111,21 @@ class UserRepository(
         return sessionGateway.isLoggedIn()
     }
     
-    suspend fun getHistory(viewAt: Long, pageSize: Int): Result<BaseResponse<HistoryListResponse>> =
+    suspend fun getHistory(
+        viewAt: Long,
+        pageSize: Int,
+        max: Long = 0,
+        business: String = ""
+    ): Result<BaseResponse<HistoryListResponse>> =
         runCatching {
             sessionGateway.executeWithRiskControlRetry(
                 key = "history",
                 source = "getHistory"
             ) {
                 sessionGateway.syncAuthState(
-                    apiService.getHistory(viewAt, pageSize),
+                    // 游标是 max+business+view_at 三元组（官方文档"类似链表 next 指针"）：
+                    // 只传 view_at 时同一秒的相邻条目无法定位边界，跨页会丢/重条目。
+                    apiService.getHistory(viewAt, max, business, pageSize),
                     source = "getHistory"
                 )
             }

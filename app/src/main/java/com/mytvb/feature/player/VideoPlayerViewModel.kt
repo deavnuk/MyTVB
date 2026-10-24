@@ -2462,12 +2462,20 @@ class VideoPlayerViewModel(
         val resumeStartMs = System.currentTimeMillis()
         val maxPages = 6
         val pageSize = 30
+        // 游标三元组：只带 view_at 定位不了同一秒的相邻条目，跨页会丢/重条目
         var viewAt = 0L
+        var cursorMax = 0L
+        var cursorBusiness = ""
         val matchedAid = aid?.takeIf { it > 0L }
         val matchedBvid = bvid
 
         for (page in 1..maxPages) {
-            val result = userRepository.getHistory(viewAt, pageSize).getOrNull()
+            val result = userRepository.getHistory(
+                viewAt = viewAt,
+                pageSize = pageSize,
+                max = cursorMax,
+                business = cursorBusiness
+            ).getOrNull()
             val history = result?.data ?: return null
             val list = history.list
             if (list.isEmpty()) break
@@ -2498,6 +2506,8 @@ class VideoPlayerViewModel(
             viewAt = history.cursor?.viewAt
                 ?: list.lastOrNull()?.viewAt
                 ?: 0L
+            cursorMax = history.cursor?.max ?: 0L
+            cursorBusiness = history.cursor?.business.orEmpty()
             if (viewAt <= 0L) break
         }
 

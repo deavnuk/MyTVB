@@ -8,6 +8,7 @@ import com.mytvb.model.common.GiveCoinResultModel
 import com.mytvb.model.common.ArchiveRelationModel
 import com.mytvb.model.common.CheckGiveCoinModel
 import com.mytvb.model.common.TripleActionResultModel
+import com.mytvb.model.common.ServerTimeModel
 import com.mytvb.model.user.UserStatModel
 import com.mytvb.model.user.UserSpaceInfo
 import com.mytvb.model.user.UserDetailInfoModel
@@ -283,6 +284,9 @@ interface ApiService {
         @FieldMap params: Map<String, String>
     ): BaseResponse<String>
 
+    @GET("x/click-interface/click/now")
+    suspend fun getServerTime(): BaseResponse<ServerTimeModel>
+
     @POST("x/web-interface/archive/like")
     @FormUrlEncoded
     suspend fun like(
@@ -338,6 +342,11 @@ interface ApiService {
         @Query("view_at") viewAt: Long,
         @Query("ps") ps: Int = 20
     ): BaseResponse<HistoryListResponse>
+
+    @GET("x/web-interface/history/continuation")
+    suspend fun getHistoryContinuation(
+        @Query("his_exp") hisExp: Int = 1200
+    ): BaseResponse<JsonObject>
 
     @POST("x/web-interface/feedback/dislike")
     @FormUrlEncoded

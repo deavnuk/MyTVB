@@ -3,6 +3,7 @@ package com.mytvb.feature.player
 import com.mytvb.core.common.json.GsonHolder
 import com.google.gson.Gson
 import com.mytvb.core.common.log.AppLog
+import com.mytvb.network.ServerClock
 import com.mytvb.network.WbiGenerator
 import com.mytvb.network.api.ApiService
 import com.mytvb.network.session.NetworkSessionGateway
@@ -108,9 +109,11 @@ internal class PlaybackHeartbeatReporter(
             return
         }
         lastReportedHeartbeatPositionSec = positionSec
-        val startTimestampSec = ((sessionStartTimestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()) / 1000L)
+        val startTimestampSec = ((sessionStartTimestampMs.takeIf { it > 0L } ?: ServerClock.nowMs()) / 1000L)
             .coerceAtLeast(1L)
-        val realtimeSec = ((System.currentTimeMillis() / 1000L) - startTimestampSec).coerceAtLeast(0L)
+        // start_ts/stime/ftime 用 click/now 校准过的服务器时钟（官方 web 上报同源），
+        // 防设备本地时钟漂移；realtime 是同一校准钟上的差值，语义不受偏移影响。
+        val realtimeSec = (ServerClock.nowSec() - startTimestampSec).coerceAtLeast(0L)
         val durationSec = ((context.durationMs.takeIf { it > 0L } ?: context.playInfoDurationMs) / 1000L)
             .coerceAtLeast(positionSec)
         if (force) {
@@ -268,7 +271,7 @@ internal class PlaybackHeartbeatReporter(
         if (playbackStartReported || csrf.isBlank()) return
         playbackStartReported = true
         val isPgc = subType in 1..6
-        val nowSec = System.currentTimeMillis() / 1000L
+        val nowSec = ServerClock.nowSec()
         val queryParams = buildClickH5WbiParams(
             aid = aid,
             startTimestampSec = startTimestampSec,
@@ -388,7 +391,9 @@ internal class PlaybackHeartbeatReporter(
 
     /** 开始一次新的播放会话上报（对应 applyPreparedPlayback 非 replaceInPlace 分支）。 */
     fun beginNewReportSession() {
-        sessionStartTimestampMs = System.currentTimeMillis()
+        // 顺手刷新服务器时钟偏移（10 分钟冷却），会话起点与后续 stime 全走校准钟
+        ServerClock.refreshAsync(apiService)
+        sessionStartTimestampMs = ServerClock.nowMs()
         lastReportedHeartbeatPositionSec = -1L
         playbackReportSession = UUID.randomUUID().toString().replace("-", "")
         playbackStartReported = false

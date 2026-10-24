@@ -152,6 +152,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
         private const val KEY_DOUYIN_MODE = "douyin_mode"
         private const val KEY_RESUME_PLAYBACK = "resume_playback"
         private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
+        private const val KEY_SKIP_OFFICIAL_OP_ED = "skip_official_op_ed"
         private const val KEY_AUDIO_NORMALIZE_LEGACY = "audio_normalize"
         private const val KEY_AUDIO_BALANCE = "audio_balance"
         private val AUDIO_BALANCE_OPTIONS = arrayOf("关", "低", "中", "高")
@@ -332,6 +333,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
             )),
             SettingGroup(R.string.setting_group_play_behavior, listOf(
                 stored(KEY_RESUME_PLAYBACK, R.string.resume_playback, "开"),
+                stored(KEY_SKIP_OFFICIAL_OP_ED, R.string.skip_official_op_ed, "开"),
                 stored(KEY_AFTER_PLAY, R.string.after_play, "播推荐视频"),
                 stored(KEY_PLAY_FINISH_EXIT_PLAYER, R.string.play_finish_exit_player, "开")
             )),
@@ -753,6 +755,7 @@ class SettingsFragment : BaseFragment<FragmentSettingsBinding>(), OnBackPressedH
             KEY_SHOW_CHAPTER_BAR -> toggle(key)
             // —— 播放·播放行为 ——
             KEY_RESUME_PLAYBACK -> toggle(key)
+            KEY_SKIP_OFFICIAL_OP_ED -> toggle(key)
             KEY_AFTER_PLAY -> showPlayerChoiceDialog(key, arrayOf("什么都不做", "播推荐视频", "播列表中的下一个", "播放合集中的下一个"))
             KEY_PLAY_FINISH_EXIT_PLAYER -> toggle(key)
             KEY_SPONSOR_BLOCK_ENABLED -> toggleSponsorBlock()

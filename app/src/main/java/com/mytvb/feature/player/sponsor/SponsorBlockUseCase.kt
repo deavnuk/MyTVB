@@ -46,10 +46,15 @@ class SponsorBlockUseCase {
         }
     }
 
-    /** 单测注入：绕过网络直接装载已归一化的片段（按 Repository 口径先排序）。 */
-    internal fun loadForTest(rawSegments: List<SponsorSegment>) {
+    /** 装载非网络来源的已归一化片段（官方片头片尾等）：重置状态后按起点排序。 */
+    fun loadSegments(rawSegments: List<SponsorSegment>) {
         reset()
         segments = rawSegments.sortedBy { it.startTimeMs }
+    }
+
+    /** 单测注入：绕过网络直接装载已归一化的片段（按 Repository 口径先排序）。 */
+    internal fun loadForTest(rawSegments: List<SponsorSegment>) {
+        loadSegments(rawSegments)
     }
 
     fun checkPosition(positionMs: Long, autoSkip: Boolean): SkipResult? {

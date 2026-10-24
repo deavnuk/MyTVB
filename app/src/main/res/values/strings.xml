@@ -109,6 +109,7 @@
     <string name="sc_switch">SC醒目留言开关</string>
     <string name="dm_track_spacing">弹幕行距</string>
     <string name="resume_playback">恢复播放进度</string>
+    <string name="skip_official_op_ed">自动跳过片头片尾</string>
     <string name="dm_text_size">弹幕字体大小</string>
     <string name="ui_scale">界面缩放</string>
     <string name="ui_text_size">界面文字大小</string>

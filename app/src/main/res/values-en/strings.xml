@@ -82,6 +82,7 @@
     <string name="sc_switch">SuperChat toggle</string>
     <string name="dm_track_spacing">Danmaku line spacing</string>
     <string name="resume_playback">Resume playback</string>
+    <string name="skip_official_op_ed">Auto skip intro/outro</string>
     <string name="dm_text_size">Danmaku text size</string>
     <string name="ui_scale">UI scale</string>
     <string name="ui_text_size">UI text size</string>

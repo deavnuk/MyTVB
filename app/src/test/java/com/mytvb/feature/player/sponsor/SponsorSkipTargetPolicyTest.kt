@@ -26,6 +26,27 @@ class SponsorSkipTargetPolicyTest {
     }
 
     @Test
+    fun officialEdCategoryMayLandAtVideoEnd() {
+        // 官方片尾跳过=看完整集，允许顶到末尾自然触发 ENDED/连播
+        val target = SponsorSkipTargetPolicy.resolveSkipTargetPositionMs(
+            requestedMs = 119_900L,
+            durationMs = 120_000L,
+            category = SponsorSegment.CATEGORY_OFFICIAL_ED
+        )
+        assertEquals(119_900L, target)
+    }
+
+    @Test
+    fun officialOpCategoryKeepsOneSecondTailGuard() {
+        val target = SponsorSkipTargetPolicy.resolveSkipTargetPositionMs(
+            requestedMs = 119_500L,
+            durationMs = 120_000L,
+            category = SponsorSegment.CATEGORY_OFFICIAL_OP
+        )
+        assertEquals(119_000L, target)
+    }
+
+    @Test
     fun outroTargetBeyondDurationClampsToDuration() {
         val target = SponsorSkipTargetPolicy.resolveSkipTargetPositionMs(
             requestedMs = 150_000L,

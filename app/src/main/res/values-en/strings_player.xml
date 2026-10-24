@@ -46,6 +46,9 @@
     <string name="player_mute_segment_toast_format">Muted: %1$s</string>
     <string name="player_sponsor_category_sponsor">Sponsor</string>
     <string name="player_sponsor_category_intro">Intro</string>
+    <!-- Official intro/outro (pgc playurl clip_info_list) -->
+    <string name="official_clip_op">Intro (official)</string>
+    <string name="official_clip_ed">Outro (official)</string>
     <string name="player_sponsor_category_outro">Outro</string>
     <string name="player_sponsor_category_self_promo">Self promotion</string>
     <string name="player_sponsor_category_interaction">Interaction reminder</string>

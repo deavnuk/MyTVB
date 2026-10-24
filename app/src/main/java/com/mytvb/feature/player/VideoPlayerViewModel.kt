@@ -72,6 +72,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import com.mytvb.feature.player.progress.PlaybackProgressStore
 import com.mytvb.feature.player.progress.PlaybackResumePositionPolicy
 import com.mytvb.feature.player.sponsor.AvToBv
+import com.mytvb.feature.player.sponsor.OfficialClipSegments
 import com.mytvb.feature.player.sponsor.SponsorBlockUseCase
 import com.mytvb.feature.player.sponsor.SponsorCategoryPrefs
 import com.mytvb.feature.player.sponsor.SponsorSegment
@@ -453,6 +454,13 @@ class VideoPlayerViewModel(
 
     private val sponsorBlockUseCase = SponsorBlockUseCase()
 
+    // 官方片头片尾（pgc playurl clip_info_list）：与空降助手相互独立、可并存。
+    // pending 为 playinfo 就绪时的暂存，首帧后按 cid 装载，预载下一集不会冲掉当前集。
+    private val officialClipUseCase = SponsorBlockUseCase()
+    private var officialClipsCid: Long = 0L
+    private var pendingOfficialClips: List<SponsorSegment> = emptyList()
+    private var pendingOfficialClipsCid: Long = 0L
+
     sealed interface SponsorSkipUiState {
         data object Hidden : SponsorSkipUiState
         data class ShowButton(val segment: SponsorSegment) : SponsorSkipUiState
@@ -472,6 +480,45 @@ class VideoPlayerViewModel(
 
     private val _sponsorSegments = MutableStateFlow<List<SponsorSegment>>(emptyList())
     val sponsorSegments: StateFlow<List<SponsorSegment>> = _sponsorSegments
+
+    /** 进度条跳过标记统一发布：空降片段 + 官方片头片尾。 */
+    private fun publishSkipSegments() {
+        _sponsorSegments.value = sponsorBlockUseCase.getSegments() + officialClipUseCase.getSegments()
+    }
+
+    /** 官方片头片尾：playinfo 就绪时暂存（开关关闭即清空），真正装载见 [applyPendingOfficialClips]。 */
+    private fun applyOfficialClips(cid: Long, playInfo: PlayInfoModel) {
+        if (!currentSettings.skipOfficialOpEd) {
+            pendingOfficialClips = emptyList()
+            pendingOfficialClipsCid = 0L
+            return
+        }
+        val segments = OfficialClipSegments.toSegments(playInfo.clipInfoList)
+        pendingOfficialClips = segments
+        pendingOfficialClipsCid = if (segments.isEmpty()) 0L else cid
+        if (segments.isNotEmpty()) {
+            AppLog.i(
+                TAG,
+                "official_clips prepared cid=$cid count=${segments.size} " +
+                    "range=${segments.joinToString { "${it.startTimeMs}-${it.endTimeMs}ms ${it.category}" }}"
+            )
+        }
+    }
+
+    /** 首帧后装载官方片头片尾片段；cid 不匹配（预载的下一集）保持不动。 */
+    private fun applyPendingOfficialClips(cid: Long) {
+        if (pendingOfficialClipsCid <= 0L || pendingOfficialClipsCid != cid) return
+        officialClipUseCase.loadSegments(pendingOfficialClips)
+        officialClipsCid = cid
+        publishSkipSegments()
+    }
+
+    private fun resetOfficialClips() {
+        officialClipUseCase.reset()
+        officialClipsCid = 0L
+        pendingOfficialClips = emptyList()
+        pendingOfficialClipsCid = 0L
+    }
 
     private val _viewPoints = MutableStateFlow<List<ViewPoint>>(emptyList())
     val viewPoints: StateFlow<List<ViewPoint>> = _viewPoints
@@ -1051,6 +1098,7 @@ class VideoPlayerViewModel(
             danmakuController.clear()
             sponsorLoadJob?.cancel()
             sponsorBlockUseCase.reset()
+            resetOfficialClips()
             _sponsorSkipState.value = SponsorSkipUiState.Hidden
             _sponsorSegments.value = emptyList()
             _viewPoints.value = emptyList()
@@ -1184,6 +1232,7 @@ class VideoPlayerViewModel(
         // 旧集片段残留还会按新集时间轴误触发跳过。generation 未递增仍为当前有效值。
         sponsorLoadJob?.cancel()
         sponsorBlockUseCase.reset()
+        resetOfficialClips()
         _sponsorSkipState.value = SponsorSkipUiState.Hidden
         _sponsorSegments.value = emptyList()
         _viewPoints.value = emptyList()
@@ -1242,6 +1291,7 @@ class VideoPlayerViewModel(
         // 切剧情节点换 cid：旧节点空降片段按新节点时间轴会误触发跳过，须重置后按新 cid 重新准备。
         sponsorLoadJob?.cancel()
         sponsorBlockUseCase.reset()
+        resetOfficialClips()
         _sponsorSkipState.value = SponsorSkipUiState.Hidden
         _sponsorSegments.value = emptyList()
         _viewPoints.value = emptyList()
@@ -2679,6 +2729,8 @@ class VideoPlayerViewModel(
             ?.takeIf { it.isNotBlank() && identity.epId == null }
             ?.let { bvid -> VideoPlayerPlayInfoCache.put(bvid = bvid, cid = identity.cid, playInfo = initialPlayInfo, requestSession = requestSession) }
 
+        applyOfficialClips(identity.cid, initialPlayInfo)
+
         PlaybackStartupTrace.log(
             traceId = currentStartupTraceId,
             startElapsedMs = currentStartupTraceStartElapsedMs,
@@ -3026,6 +3078,7 @@ class VideoPlayerViewModel(
             }
         }
         scheduleDeferredSponsorLoadAfterFirstFrame(cid)
+        applyPendingOfficialClips(cid)
         viewModelScope.launch {
             // 首帧后先把弹幕链路放出去，心跳/扩展信息延后一个很短的窗口，降低首显附近主线程抖动。
             delay(FIRST_FRAME_DEFERRED_WORK_DELAY_MS.milliseconds)
@@ -3100,7 +3153,7 @@ class VideoPlayerViewModel(
             sponsorBlockUseCase.lastError?.let { error ->
                 AppLog.w(TAG, "sponsor load skipped: $error")
             }
-            _sponsorSegments.value = sponsorBlockUseCase.getSegments()
+            publishSkipSegments()
             PlaybackStartupTrace.log(
                 traceId = currentStartupTraceId,
                 startElapsedMs = currentStartupTraceStartElapsedMs,
@@ -3627,7 +3680,9 @@ class VideoPlayerViewModel(
 
     private fun checkSponsorBlock(positionMs: Long) {
         val settings = currentSettings
-        if (!settings.sponsorBlockEnabled) return
+        // 官方片头片尾与空降助手相互独立：任一在效即继续轮询
+        val officialActive = officialClipsCid > 0L && officialClipsCid == currentCid
+        if (!settings.sponsorBlockEnabled && !officialActive) return
         if (sponsorSkipPending) {
             if (positionMs >= pendingSeekPositionMs - 500L) {
                 sponsorSkipPending = false
@@ -3635,7 +3690,16 @@ class VideoPlayerViewModel(
             }
             return
         }
-        val result = sponsorBlockUseCase.checkPosition(positionMs, autoSkip = true)
+        val officialResult = if (officialActive) {
+            officialClipUseCase.checkPosition(positionMs, autoSkip = true)
+        } else {
+            null
+        }
+        val result = if (settings.sponsorBlockEnabled) {
+            officialResult ?: sponsorBlockUseCase.checkPosition(positionMs, autoSkip = true)
+        } else {
+            officialResult
+        }
         when {
             result == null -> {
                 val current = _sponsorSkipState.value
@@ -3675,6 +3739,15 @@ class VideoPlayerViewModel(
 
     fun sponsorUserSeek(positionMs: Long) {
         sponsorBlockUseCase.onUserSeek(positionMs)
+        if (officialClipsCid > 0L && officialClipsCid == currentCid) {
+            officialClipUseCase.onUserSeek(positionMs)
+            // 用户主动拖回官方片头/片尾段内 = 想看，本集内不再自动跳该段
+            val officialSegments = officialClipUseCase.getSegments()
+            val landedInOfficial = officialSegments.any { positionMs >= it.startTimeMs && positionMs < it.endTimeMs }
+            if (landedInOfficial) {
+                officialClipUseCase.dismissCurrent()
+            }
+        }
         _sponsorSkipState.value = SponsorSkipUiState.Hidden
     }
 }

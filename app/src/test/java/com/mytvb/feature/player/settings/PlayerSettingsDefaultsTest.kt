@@ -9,4 +9,9 @@ class PlayerSettingsDefaultsTest {
     fun sponsorBlockIsOnByDefault() {
         assertTrue(PlayerSettings().sponsorBlockEnabled)
     }
+
+    @Test
+    fun skipOfficialOpEdIsOnByDefault() {
+        assertTrue(PlayerSettings().skipOfficialOpEd)
+    }
 }

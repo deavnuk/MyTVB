@@ -59,7 +59,32 @@ data class PlayInfoModel(
     val lastPlayCid: Long = 0,
 
     @SerializedName("v_voucher")
-    val vVoucher: String = ""
+    val vVoucher: String = "",
+
+    // 番剧/影视官方片头片尾打点（pgc playurl 下发）；UGC 接口无此字段。
+    @SerializedName("clip_info_list")
+    val clipInfoList: List<PgcClipInfo>? = null
+)
+
+/**
+ * 官方片头片尾打点：clipType 为 CLIP_TYPE_OP（片头）/ CLIP_TYPE_ED（片尾），
+ * start/end 为秒；toastText 为官方提示文案（"即将跳过片头"）。
+ */
+data class PgcClipInfo(
+    @SerializedName("materialNo")
+    val materialNo: Int = 0,
+
+    @SerializedName("start")
+    val start: Double = 0.0,
+
+    @SerializedName("end")
+    val end: Double = 0.0,
+
+    @SerializedName("toastText")
+    val toastText: String = "",
+
+    @SerializedName("clipType")
+    val clipType: String = ""
 )
 
 data class Dash(

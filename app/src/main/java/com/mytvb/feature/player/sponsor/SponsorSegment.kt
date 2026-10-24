@@ -32,6 +32,8 @@ data class SponsorSegment(
         CATEGORY_FILLER -> context.getString(R.string.player_sponsor_category_filler)
         CATEGORY_PADDING -> context.getString(R.string.player_sponsor_category_padding)
         CATEGORY_EXCLUSIVE_ACCESS -> context.getString(R.string.player_sponsor_category_exclusive_access)
+        CATEGORY_OFFICIAL_OP -> context.getString(R.string.official_clip_op)
+        CATEGORY_OFFICIAL_ED -> context.getString(R.string.official_clip_ed)
         else -> category
     }
 
@@ -48,6 +50,8 @@ data class SponsorSegment(
         CATEGORY_FILLER -> "离题闲聊/玩笑"
         CATEGORY_PADDING -> "内容填充"
         CATEGORY_EXCLUSIVE_ACCESS -> "付费/专属内容"
+        CATEGORY_OFFICIAL_OP -> "片头"
+        CATEGORY_OFFICIAL_ED -> "片尾"
         else -> category
     }
 
@@ -63,6 +67,9 @@ data class SponsorSegment(
         CATEGORY_FILLER -> 0xFF7300FF
         CATEGORY_PADDING -> 0xFF222222
         CATEGORY_EXCLUSIVE_ACCESS -> 0xFF008A5C
+        // 官方打点：沿用空降片头/片尾的青/蓝，进度条上视觉同族
+        CATEGORY_OFFICIAL_OP -> 0xFF00FFFF
+        CATEGORY_OFFICIAL_ED -> 0xFF0202ED
         else -> 0xFF00D400
     }
 
@@ -78,6 +85,9 @@ data class SponsorSegment(
         const val CATEGORY_FILLER = "filler"
         const val CATEGORY_PADDING = "padding"
         const val CATEGORY_EXCLUSIVE_ACCESS = "exclusive_access"
+        // 官方片头片尾（pgc playurl clip_info_list），非空降社区数据
+        const val CATEGORY_OFFICIAL_OP = "official_op"
+        const val CATEGORY_OFFICIAL_ED = "official_ed"
         // 拉取类别按用户明确选择只取三类：恰饭、片头、片尾。服务端其余类别
         // （selfpromo/interaction/preview/music_offtopic/filler 等）不请求。
         val ALL_CATEGORIES = listOf(

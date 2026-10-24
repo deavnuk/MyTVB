@@ -54,6 +54,8 @@ data class PlayerSettings(
     val resumePlayback: Boolean = true,
     val sponsorBlockEnabled: Boolean = true,
     val sponsorBlockAutoSkip: Boolean = true,
+    // 番剧/影视官方片头片尾自动跳过（pgc playurl clip_info_list）。官方运营打点，默认开。
+    val skipOfficialOpEd: Boolean = true,
     // 音量均衡：PCM 级自适应响度归一（VolumeBalanceAudioProcessor），关/低/中/高四档。
     // 取代旧的系统音效方案（DynamicsProcessing/LoudnessEnhancer——部分 TV 设备驱动有 bug 会失真）。默认中档。
     val audioBalance: AudioBalanceLevel = AudioBalanceLevel.MEDIUM,
@@ -103,6 +105,8 @@ object PlayerSettingsStore {
     private const val KEY_RESUME_PLAYBACK = "resume_playback"
     private const val KEY_SPONSOR_BLOCK_ENABLED = "sponsor_block_enabled"
     private const val KEY_SPONSOR_BLOCK_AUTO_SKIP = "sponsor_block_auto_skip"
+    // 与 SettingsFragment.KEY_SKIP_OFFICIAL_OP_ED 同键；存储值"开/关"（parseToggle 口径），默认开。
+    const val KEY_SKIP_OFFICIAL_OP_ED = "skip_official_op_ed"
     // 旧布尔开关的 key：仅用于迁移回退读取（"开"→中档），不再写入。
     private const val KEY_AUDIO_NORMALIZE_LEGACY = "audio_normalize"
     private const val KEY_AUDIO_BALANCE = "audio_balance"
@@ -152,6 +156,8 @@ object PlayerSettingsStore {
             append(readSetting(KEY_SPONSOR_BLOCK_ENABLED).orEmpty())
             append("|")
             append(readSetting(KEY_SPONSOR_BLOCK_AUTO_SKIP).orEmpty())
+            append("|")
+            append(readSetting(KEY_SKIP_OFFICIAL_OP_ED).orEmpty())
             append("|")
             append(readSetting(KEY_AUDIO_NORMALIZE_LEGACY).orEmpty())
             append("|")
@@ -265,6 +271,10 @@ object PlayerSettingsStore {
             ),
             sponsorBlockAutoSkip = parseToggle(
                 readSetting(KEY_SPONSOR_BLOCK_AUTO_SKIP),
+                defaultValue = true
+            ),
+            skipOfficialOpEd = parseToggle(
+                readSetting(KEY_SKIP_OFFICIAL_OP_ED),
                 defaultValue = true
             ),
             audioBalance = parseAudioBalance(

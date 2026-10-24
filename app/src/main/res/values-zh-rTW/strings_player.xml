@@ -46,6 +46,9 @@
     <string name="player_mute_segment_toast_format">已靜音：%1$s</string>
     <string name="player_sponsor_category_sponsor">贊助/業配</string>
     <string name="player_sponsor_category_intro">過場/開場動畫</string>
+    <!-- 官方片頭片尾（pgc playurl clip_info_list） -->
+    <string name="official_clip_op">片頭</string>
+    <string name="official_clip_ed">片尾</string>
     <string name="player_sponsor_category_outro">鳴謝/結束畫面</string>
     <string name="player_sponsor_category_self_promo">無償/自我推廣</string>
     <string name="player_sponsor_category_interaction">三連/互動提醒</string>

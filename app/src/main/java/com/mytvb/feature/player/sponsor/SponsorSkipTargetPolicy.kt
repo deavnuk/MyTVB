@@ -14,7 +14,7 @@ object SponsorSkipTargetPolicy {
     ): Long {
         val requested = requestedMs.coerceAtLeast(0L)
         if (durationMs <= 0L) return requested
-        return if (category == SponsorSegment.CATEGORY_OUTRO) {
+        return if (category == SponsorSegment.CATEGORY_OUTRO || category == SponsorSegment.CATEGORY_OFFICIAL_ED) {
             // 片尾类允许顶到末尾，自然播完触发 ENDED 是期望行为
             requested.coerceIn(0L, durationMs)
         } else {

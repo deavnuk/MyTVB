@@ -23,6 +23,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import android.util.TypedValue
 import com.mytvb.core.ui.base.ScaledTextView
+import com.mytvb.core.common.log.AppLog
 import com.mytvb.R
 import com.mytvb.model.video.Owner
 import com.mytvb.model.video.VideoModel
@@ -271,7 +272,13 @@ class VideoPlayerOverlayController(
         val dialog = SeasonEpisodeDialog(
             activity,
             backPressedHandler = {
-                if (isFocusInsideSeasonList()) {
+                val focus = seasonDialogRef?.window?.currentFocus
+                val inList = isFocusInsideSeasonList()
+                AppLog.i(
+                    "SeasonPanel",
+                    "backPressed focus=${focus?.javaClass?.simpleName}#${focus?.id} inList=$inList"
+                )
+                if (inList) {
                     backToTabAction?.invoke()
                     false
                 } else {
@@ -336,11 +343,6 @@ class VideoPlayerOverlayController(
             )
         }
 
-        fun enterSeasonListTarget(index: Int): Int {
-            val localIndex = selectedEpisodeIndex - index * SEASON_GROUP_SIZE
-            return if (localIndex in groups[index].indices) localIndex else 0
-        }
-
         groups.forEachIndexed { index, group ->
             val start = index * SEASON_GROUP_SIZE + 1
             val end = index * SEASON_GROUP_SIZE + group.size
@@ -369,7 +371,15 @@ class VideoPlayerOverlayController(
                         true
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        focusTargetEpisode(recyclerView, enterSeasonListTarget(index))
+                        // 落在视口最上方可见项（视觉上紧邻 tab 的那项），与
+                        // “首项按上回 tab”对称往返；不定位正在播放项——播放项
+                        // 非组首时，从首项回 tab 再按下会表现为焦点越过第 1 项
+                        // 直接落到播放项上
+                        val lm = recyclerView.layoutManager as? LinearLayoutManager
+                        focusTargetEpisode(
+                            recyclerView,
+                            lm?.findFirstVisibleItemPosition()?.takeIf { it >= 0 } ?: 0
+                        )
                         true
                     }
                     else -> false
@@ -834,6 +844,7 @@ private class SeasonEpisodeDialog(
         onBackPressedDispatcher.addCallback(
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    AppLog.i("SeasonPanel", "dispatcher handleOnBackPressed")
                     if (backPressedHandler()) {
                         // 默认行为：关闭弹窗（等价 onBackPressed → cancel）
                         this@SeasonEpisodeDialog.cancel()

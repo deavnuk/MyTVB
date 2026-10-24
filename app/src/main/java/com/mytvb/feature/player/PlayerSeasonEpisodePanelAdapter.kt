@@ -9,6 +9,7 @@ import android.graphics.Outline
 import androidx.recyclerview.widget.RecyclerView
 import androidx.media3.common.util.UnstableApi
 import com.mytvb.core.ui.image.ImageLoader
+import com.mytvb.core.common.log.AppLog
 import com.mytvb.R
 import com.mytvb.core.common.time.TimeUtils
 import com.mytvb.core.common.format.NumberUtils
@@ -97,24 +98,37 @@ class PlayerSeasonEpisodePanelAdapter(
             // 防止 DOWN 穿透后 Dialog 层开始 tracking、UP 时关闭弹窗。
             // 第一项按“上”同理回 tab。
             binding.clickView.setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK) {
+                    AppLog.i(
+                        "SeasonPanel",
+                        "item BACK action=${event.action} repeat=${event.repeatCount} " +
+                            "pos=$bindingAdapterPosition focused=${binding.clickView.hasFocus()}"
+                    )
+                }
                 when (keyCode) {
-                    KeyEvent.KEYCODE_BACK -> {
-                        if (event.action == KeyEvent.ACTION_DOWN ||
-                            event.action == KeyEvent.ACTION_UP
-                        ) {
-                            onBackToTab()
-                            return@setOnKeyListener true
-                        }
-                        false
-                    }
+                    // BACK 不在 view 层拦截（MuMu Android 15 实测）：BACK 的
+                    // DOWN 会到达 item listener，且同一按键内 dispatcher 的
+                    // handleOnBackPressed 仍触发（view 层消费与否不影响）——
+                    // 若在此消费并把焦点移到 tab，dispatcher 判定时焦点已不在
+                    // 列表 → 一次按键直接关弹窗。全权交 backPressedDispatcher
+                    // 的 handler 判定（其时焦点仍在列表项上未被移动）：列表内
+                    // 回 tab、tab 上关闭。
                     KeyEvent.KEYCODE_DPAD_UP -> {
-                        if (event.action == KeyEvent.ACTION_UP &&
-                            bindingAdapterPosition == 0
-                        ) {
-                            onBackToTab()
-                            return@setOnKeyListener true
+                        // 仅首项响应：DOWN 即回 tab（DOWN 消费本身也阻止默认
+                        // 焦点查找把焦点飞到列表外）。UP 只消费不触发——从
+                        // 第 2 项按“上”时焦点移动发生在 DOWN，随后的 UP 已落在
+                        // 首项 listener 上，若 UP 也触发会表现为“焦点刚移到
+                        // 首项就自动跳回 tab”。
+                        if (bindingAdapterPosition == 0) {
+                            if (event.action == KeyEvent.ACTION_DOWN &&
+                                event.repeatCount == 0
+                            ) {
+                                onBackToTab()
+                            }
+                            true
+                        } else {
+                            false
                         }
-                        false
                     }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
                         // 最后一项按“下”留在原地，避免焦点飞出列表

@@ -1,6 +1,7 @@
 package com.mytvb.repository
 
 import com.mytvb.model.search.HotWordModel
+import com.mytvb.model.search.SearchDefaultModel
 import com.mytvb.model.search.SearchType
 import com.mytvb.model.search.SearchVideoOrder
 import com.mytvb.repository.remote.SearchRepository as NetworkSearchRepository
@@ -9,6 +10,8 @@ class SearchRepository(
     private val delegate: NetworkSearchRepository
 ) {
     suspend fun loadHotSearchWords(): Result<List<HotWordModel>> = delegate.loadHotSearchWords()
+
+    suspend fun loadSearchDefault(): Result<SearchDefaultModel?> = delegate.loadSearchDefault()
 
     suspend fun searchSuggest(keyword: String): Result<List<HotWordModel>> = delegate.searchSuggest(keyword)
 

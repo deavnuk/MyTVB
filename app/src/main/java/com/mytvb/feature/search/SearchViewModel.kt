@@ -8,6 +8,7 @@ import com.mytvb.model.search.HotWordModel
 import com.mytvb.model.search.SearchAllCountWrapper
 import com.mytvb.model.search.SearchAllResponseData
 import com.mytvb.model.search.SearchCategoryItem
+import com.mytvb.model.search.SearchDefaultModel
 import com.mytvb.model.search.SearchItemModel
 import com.mytvb.model.search.SearchType
 import com.mytvb.model.search.SearchVideoOrder
@@ -37,6 +38,10 @@ class SearchViewModel(
 
     private val _suggestWords = MutableStateFlow<List<HotWordModel>>(emptyList())
     val suggestWords: StateFlow<List<HotWordModel>> = _suggestWords.asStateFlow()
+
+    /** 官方搜索框默认词（wbi/search/default），null 表示不可用（无 wbi key 或请求失败）。 */
+    private val _searchDefault = MutableStateFlow<SearchDefaultModel?>(null)
+    val searchDefault: StateFlow<SearchDefaultModel?> = _searchDefault.asStateFlow()
 
     private val _searchOverview = MutableStateFlow<SearchAllResponseData?>(null)
     val searchOverview: StateFlow<SearchAllResponseData?> = _searchOverview.asStateFlow()
@@ -89,6 +94,12 @@ class SearchViewModel(
         viewModelScope.launch {
             _hotSearchWords.value = searchRepository.loadHotSearchWords()
                 .getOrDefault(emptyList())
+        }
+    }
+
+    fun loadSearchDefault() {
+        viewModelScope.launch {
+            _searchDefault.value = searchRepository.loadSearchDefault().getOrNull()
         }
     }
 

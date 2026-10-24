@@ -4,6 +4,7 @@ import androidx.core.text.HtmlCompat
 import com.mytvb.model.BaseResponse
 import com.mytvb.model.search.HotWordModel
 import com.mytvb.model.search.SearchAllResponseData
+import com.mytvb.model.search.SearchDefaultModel
 import com.mytvb.model.search.SearchItemModel
 import com.mytvb.model.search.SearchResponseWrapper
 import com.mytvb.model.search.SearchType
@@ -58,6 +59,11 @@ private interface SearchApiService {
     @GET("https://s.search.bilibili.com/main/hotword")
     suspend fun getHotSearchWords(): HotWordWrapper
 
+    @GET("x/web-interface/wbi/search/default")
+    suspend fun searchDefaultWbi(
+        @QueryMap params: Map<String, String>
+    ): BaseResponse<SearchDefaultModel>
+
     @GET("https://s.search.bilibili.com/main/suggest")
     suspend fun searchSuggest(
         @Query("term") keyword: String,
@@ -104,6 +110,18 @@ class SearchRepository(
                     hotId = (index + 1).toString()
                 )
             }
+        }
+
+    /**
+     * 搜索框官方默认词（wbi/search/default）。仅 wbi 路径存在，无 wbi key 时直接返回
+     * null（该词只做输入框占位提示，缺失无感知）。
+     */
+    suspend fun loadSearchDefault(): Result<SearchDefaultModel?> =
+        runCatching {
+            if (!hasWbiKeys()) return@runCatching null
+            searchApiService.searchDefaultWbi(
+                buildWbiParams(mapOf("web_location" to "333.1007"))
+            ).data?.takeIf { it.showName.isNotBlank() || it.name.isNotBlank() }
         }
 
     suspend fun searchSuggest(keyword: String): Result<List<HotWordModel>> =

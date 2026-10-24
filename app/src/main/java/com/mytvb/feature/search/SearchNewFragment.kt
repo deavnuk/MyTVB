@@ -143,6 +143,7 @@ class SearchNewFragment :
     override fun initData() {
         loadRecentSearches()
         viewModel.loadHotSearch()
+        viewModel.loadSearchDefault()
         pendingOpenKeyword = arguments?.getString(ARG_KEYWORD)?.trim()?.takeIf { it.isNotEmpty() }
         submitPendingOpenKeyword()
     }
@@ -161,6 +162,16 @@ class SearchNewFragment :
                 viewModel.suggestWords.collectLatest { suggests ->
                     latestSuggests = suggests
                     syncCenterColumn()
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.searchDefault.collectLatest { word ->
+                    // 输入框为空时把官方默认词亮成占位提示，拉动搜索也回退到它
+                    binding.editText.hint = word?.showName?.takeIf { it.isNotBlank() }
+                        ?: getString(R.string.search)
                 }
             }
         }
@@ -420,10 +431,14 @@ class SearchNewFragment :
     }
 
     private fun performSearch(keyword: String) {
-        val normalized = keyword.trim()
+        var normalized = keyword.trim()
         if (normalized.isEmpty()) {
-            AppToast.show(requireContext(), R.string.empty_keyword)
-            return
+            // 空输入直接搜索时回退到官方默认词（与输入框占位一致），仍无词才提示
+            normalized = viewModel.searchDefault.value?.name?.trim().orEmpty()
+            if (normalized.isEmpty()) {
+                AppToast.show(requireContext(), R.string.empty_keyword)
+                return
+            }
         }
 
         currentKeyword = normalized

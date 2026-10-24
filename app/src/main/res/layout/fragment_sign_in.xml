@@ -42,6 +42,54 @@
                 android:layout_height="@dimen/px150"
                 android:layout_gravity="center" />
 
+            <!-- 已扫码待确认覆盖层：默认隐藏。半透明遮罩淡化二维码（官方同款），
+                 白圆底粉色对勾 + 两行提示；纯状态展示无交互，不抢焦点 -->
+            <androidx.appcompat.widget.LinearLayoutCompat
+                android:id="@+id/overlayScanned"
+                android:layout_width="@dimen/px800"
+                android:layout_height="@dimen/px800"
+                android:background="@drawable/qr_scanned_overlay_bg"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <FrameLayout
+                    android:layout_width="@dimen/px150"
+                    android:layout_height="@dimen/px150">
+
+                    <androidx.appcompat.widget.AppCompatImageView
+                        android:layout_width="@dimen/px150"
+                        android:layout_height="@dimen/px150"
+                        android:background="@drawable/qr_scanned_circle_bg"
+                        android:contentDescription="@string/sign_in_qr_scan_success" />
+
+                    <androidx.appcompat.widget.AppCompatImageView
+                        android:layout_width="@dimen/px90"
+                        android:layout_height="@dimen/px90"
+                        android:layout_gravity="center"
+                        android:contentDescription="@null"
+                        app:srcCompat="@drawable/ic_check"
+                        app:tint="@color/pink" />
+                </FrameLayout>
+
+                <androidx.appcompat.widget.AppCompatTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/px30"
+                    android:text="@string/sign_in_qr_scan_success"
+                    android:textColor="@android:color/white"
+                    android:textSize="@dimen/px34"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.AppCompatTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/px10"
+                    android:text="@string/sign_in_qr_confirm_hint"
+                    android:textColor="@android:color/white"
+                    android:textSize="@dimen/px26" />
+            </androidx.appcompat.widget.LinearLayoutCompat>
+
             <!-- 二维码过期/失败覆盖层：默认隐藏。透明底+紫色描边选择框（焦点指示），
                  二维码保持完整可见；提示文字收进半透明深色胶囊。
                  尺寸必须与 imageView 同为 px800：wrap_content 父容器内 match_parent 会退化成文字大小 -->

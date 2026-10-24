@@ -433,7 +433,8 @@
     <string name="sign_in_qr_failed_title">二维码获取失败</string>
     <string name="sign_in_qr_retry">点击重试</string>
     <string name="sign_in_qr_countdown_format">%1$s 后过期</string>
-    <string name="sign_in_qr_scanned">已扫码，请在手机上确认</string>
+    <string name="sign_in_qr_scan_success">扫码成功</string>
+    <string name="sign_in_qr_confirm_hint">请在手机上确认</string>
     <string name="sign_in_poll_network_error">网络连接不可用，扫码登录暂时无法完成，请检查网络</string>
     <string name="science">科学</string>
     <string name="screen_ratio">画面缩放</string>

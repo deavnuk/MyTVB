@@ -69,6 +69,7 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
         binding.progressBar.visibility = android.view.View.VISIBLE
         // 刷新期间收起过期覆盖层与倒计时，成败之后再决定去留
         binding.overlayExpired.visibility = android.view.View.GONE
+        binding.overlayScanned.visibility = android.view.View.GONE
         binding.tvCountdown.visibility = android.view.View.GONE
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -188,6 +189,8 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
         pollingJob?.cancel()
         countdownJob?.cancel()
         binding.tvCountdown.visibility = android.view.View.GONE
+        // 扫了码一直没确认直到过期：先收起扫码成功层，再盖过期层
+        binding.overlayScanned.visibility = android.view.View.GONE
         binding.overlayExpired.visibility = android.view.View.VISIBLE
         // 登录页没有其他可聚焦控件，焦点落上即可用 OK 键刷新
         binding.overlayExpired.requestFocus()
@@ -261,11 +264,13 @@ class SignInFragment : BaseFragment<FragmentSignInBinding>() {
                     showExpiredState()
                 }
                 response.code == 86101 -> {
-                    // 未扫码，继续轮询
+                    // 未扫码，继续轮询；若服务端状态自「已扫码」回退，收起扫码成功覆盖层
+                    binding.overlayScanned.visibility = android.view.View.GONE
                 }
                 response.code == 86090 -> {
-                    // 已扫码待确认：切换标题给用户反馈，此前此状态界面无任何变化
-                    binding.textView.text = getString(R.string.sign_in_qr_scanned)
+                    // 已扫码待确认：二维码上盖「扫码成功」覆盖层（官方同款对勾反馈），
+                    // 此前只改标题一行小字，用户扫完码界面几乎无变化
+                    binding.overlayScanned.visibility = android.view.View.VISIBLE
                 }
             }
         } catch (e: Exception) {

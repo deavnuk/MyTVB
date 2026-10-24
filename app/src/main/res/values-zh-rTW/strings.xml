@@ -266,7 +266,8 @@
     <string name="sign_in_qr_failed_title">QR Code 取得失敗</string>
     <string name="sign_in_qr_retry">點擊重試</string>
     <string name="sign_in_qr_countdown_format">%1$s 後過期</string>
-    <string name="sign_in_qr_scanned">已掃碼，請在手機上確認</string>
+    <string name="sign_in_qr_scan_success">掃碼成功</string>
+    <string name="sign_in_qr_confirm_hint">請在手機上確認</string>
     <string name="sign_in_poll_network_error">網路連線無法使用，掃碼登入暫時無法完成，請檢查網路</string>
     <string name="science">科學</string>
     <string name="screen_ratio">畫面縮放</string>

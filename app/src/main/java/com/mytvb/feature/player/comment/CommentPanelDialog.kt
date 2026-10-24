@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -44,6 +45,8 @@ internal class CommentPanelDialog(
     private val aid: Long,
     private val upMid: Long,
     private val commentCount: Long,
+    /** 焦点在评论条目上按菜单键：打开该用户的主页弹窗（调用方负责先关本面板）。 */
+    private val onOpenOwnerSpace: (VideoCommentItem) -> Unit,
     private val onDismissed: () -> Unit,
 ) : AppCompatDialog(activity, R.style.DialogTheme) {
 
@@ -353,6 +356,24 @@ internal class CommentPanelDialog(
         val hasPictures = item.pictures.isNotEmpty() || item.noteCvid > 0L
         if (!hasPictures) return
         openItemPictures(item, startIndex = 0)
+    }
+
+    /**
+     * 菜单键打开评论用户主页：暂时下线（用户反馈先屏蔽），按菜单键不响应、原样分发。
+     * 恢复时把下面的菜单键分支加回 [dispatchKeyEvent] 即可，取焦点条目的逻辑
+     * 保留在 [focusedCommentItem]。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun focusedCommentItem(): VideoCommentItem? {
+        val recycler = if (isThreadVisible()) binding.recyclerCommentThread else binding.recyclerComments
+        val focused = recycler.findFocus() ?: return null
+        val position = recycler.getChildAdapterPosition(focused)
+        if (position == RecyclerView.NO_POSITION) return null
+        val adapter = recycler.adapter as? VideoCommentsAdapter ?: return null
+        return adapter.itemAt(position)
     }
 
     private fun openItemPictures(item: VideoCommentItem, startIndex: Int) {

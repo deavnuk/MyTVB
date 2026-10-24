@@ -59,6 +59,9 @@ internal class VideoCommentsAdapter(
         notifyItemRangeChanged(0, itemCount)
     }
 
+    /** 按位置取条目（评论面板菜单键读焦点条目的 mid 弹用户卡用）。 */
+    fun itemAt(position: Int): VideoCommentItem? = items.getOrNull(position)
+
     fun setItems(list: List<VideoCommentItem>) {
         items.clear()
         items.addAll(list)

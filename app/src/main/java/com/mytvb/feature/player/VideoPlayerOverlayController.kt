@@ -24,6 +24,7 @@ import androidx.recyclerview.widget.RecyclerView
 import android.util.TypedValue
 import com.mytvb.core.ui.base.ScaledTextView
 import com.mytvb.R
+import com.mytvb.model.video.Owner
 import com.mytvb.model.video.VideoModel
 import com.mytvb.model.video.detail.VideoDetailModel
 import com.mytvb.ui.adapter.VideoAdapter
@@ -671,6 +672,16 @@ class VideoPlayerOverlayController(
             AppToast.show(activity, activity.getString(R.string.player_up_info_not_loaded))
             return
         }
+        showOwnerDetailDialog(owner)
+    }
+
+    /**
+     * 打开用户主页弹窗（评论面板菜单键传入评论用户的 Owner 复用同一路径）。
+     * currentAid/currentVideoId/currentSeasonId 仍取当前视频：仅用于合集/投稿 tab
+     * 定位「正在播放」项，他人主页无此视频时无副作用。
+     */
+    fun showOwnerDetailDialog(owner: Owner) {
+        val view = latestVideoInfoProvider()?.view
         overlayCoordinator.rememberFocusRestoreTarget(PlayerOverlayCoordinator.FocusTarget.OWNER_BUTTON)
         keepControllerVisibleForOverlay()
         uiCoordinator.transition(UiEvent.PanelOpened(PanelType.OWNER))
@@ -682,9 +693,9 @@ class VideoPlayerOverlayController(
                 onHideNextPreview()
                 onPlayRelatedVideo(video, playQueue)
             },
-            currentAid = view.aid,
-            currentVideoId = view.bvid,
-            currentSeasonId = view.ugcSeason?.id ?: 0L
+            currentAid = view?.aid ?: 0L,
+            currentVideoId = view?.bvid.orEmpty(),
+            currentSeasonId = view?.ugcSeason?.id ?: 0L
         ).apply {
             setOnDismissListener {
                 uiCoordinator.transition(UiEvent.PanelClosed)
@@ -710,6 +721,12 @@ class VideoPlayerOverlayController(
             aid = video.aid,
             upMid = video.owner?.mid ?: 0L,
             commentCount = video.stat?.reply ?: 0L,
+            // 面板已在回调前自行 dismiss（PanelClosed/焦点恢复正常走完），这里直接开主页
+            onOpenOwnerSpace = { item ->
+                showOwnerDetailDialog(
+                    Owner(mid = item.mid, name = item.userName, face = item.avatarUrl.orEmpty())
+                )
+            },
             onDismissed = {
                 uiCoordinator.transition(UiEvent.PanelClosed)
                 if (isViewActive()) {

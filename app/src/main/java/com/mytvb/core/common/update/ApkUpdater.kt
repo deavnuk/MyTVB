@@ -40,6 +40,25 @@ object ApkUpdater {
     private const val TAG = "ApkUpdater"
     private const val UPDATE_DIR_NAME = "update"
 
+    /**
+     * GitHub release 资产下载镜像（国内加速；前缀拼接到原始直链前，如
+     * https://ghfast.top/https://github.com/.../xxx.apk）。镜像列表与顺序参考
+     * 同类 TV 客户端 BT（chinasoul/BT）的实测组合；GitHub 直连永远作为最后兜底。
+     */
+    private val DOWNLOAD_MIRRORS = listOf(
+        "https://ghfast.top/",
+        "https://gh-proxy.com/",
+        "https://github.boki.moe/",
+    )
+
+    /** 下载候选 URL：GitHub 直链时镜像在前、直连兜底；非 GitHub 直链原样单候选。 */
+    private fun downloadCandidates(url: String): List<String> =
+        if (url.startsWith("https://github.com/")) {
+            DOWNLOAD_MIRRORS.map { it + url } + url
+        } else {
+            listOf(url)
+        }
+
     /** 启动自动检查的忽略版本：用户在自动弹窗点「稍后」后落盘，同版本不再自动弹 */
     const val KEY_IGNORED_VERSION = "update_ignored_version"
 
@@ -234,19 +253,23 @@ object ApkUpdater {
         url: String,
         onProgress: (Progress) -> Unit,
     ): File {
+        // 逐候选换源重试（镜像→…→直连）：国内访问 GitHub 直链经常龟速/失败，
+        // 换一个源远比对同一源干等重试有效。
+        val candidates = downloadCandidates(url)
         var lastError: Throwable? = null
-        val maxAttempts = 3
-        for (attempt in 1..maxAttempts) {
+        for ((index, candidate) in candidates.withIndex()) {
             currentCoroutineContext().ensureActive()
-            if (attempt == 1) onProgress(Progress.Connecting)
+            if (index == 0) onProgress(Progress.Connecting)
             try {
-                return downloadApkToCacheOnce(context, url, onProgress)
+                AppLog.i(TAG, "download attempt ${index + 1}/${candidates.size} via=${candidate.take(64)}")
+                return downloadApkToCacheOnce(context, candidate, onProgress)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 lastError = t
-                if (attempt < maxAttempts) {
-                    onProgress(Progress.Retrying(attempt, maxAttempts))
-                    delay((1_500L * attempt).milliseconds)
+                AppLog.w(TAG, "download failed via ${candidate.take(64)}: ${t.message}")
+                if (index < candidates.lastIndex) {
+                    onProgress(Progress.Retrying(index + 1, candidates.size))
+                    delay(800L.milliseconds)
                 }
             }
         }

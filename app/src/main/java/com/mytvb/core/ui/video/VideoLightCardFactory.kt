@@ -170,6 +170,8 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
     private var showDanmakuCount = false
     private var showInteractionBadge = false
     private var showChargeBadge = false
+    private var typeBadgeText: String = ""
+    private var typeBadgeColor: Int = TYPE_BADGE_COLOR_DEFAULT
     private var progressMax = 100
     private var progressValue = 0
     private var showProgress = false
@@ -212,14 +214,19 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
         showDanmakuCount: Boolean = this.showDanmakuCount,
         durationText: CharSequence? = this.durationText,
         showInteractionBadge: Boolean = this.showInteractionBadge,
-        showChargeBadge: Boolean = this.showChargeBadge
+        showChargeBadge: Boolean = this.showChargeBadge,
+        typeBadgeText: CharSequence? = this.typeBadgeText,
+        typeBadgeColor: Int = this.typeBadgeColor
     ) {
         val nextPlayCount = playCountText?.toString().orEmpty()
         val nextDanmaku = danmakuText?.toString().orEmpty()
         val nextDuration = durationText?.toString().orEmpty()
+        val nextTypeBadge = typeBadgeText?.toString().orEmpty()
         if (TextUtils.equals(this.playCountText, nextPlayCount) &&
             TextUtils.equals(this.danmakuText, nextDanmaku) &&
             TextUtils.equals(this.durationText, nextDuration) &&
+            TextUtils.equals(this.typeBadgeText, nextTypeBadge) &&
+            this.typeBadgeColor == typeBadgeColor &&
             this.showPlayCount == showPlayCount &&
             this.showDanmakuCount == showDanmakuCount &&
             this.showInteractionBadge == showInteractionBadge &&
@@ -230,6 +237,8 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
         this.playCountText = nextPlayCount
         this.danmakuText = nextDanmaku
         this.durationText = nextDuration
+        this.typeBadgeText = nextTypeBadge
+        this.typeBadgeColor = typeBadgeColor
         this.showPlayCount = showPlayCount
         this.showDanmakuCount = showDanmakuCount
         this.showInteractionBadge = showInteractionBadge
@@ -353,7 +362,12 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
             right = drawBadge(canvas, context.getString(R.string.core_badge_charge_exclusive), right, top, 0xFFF6A11B.toInt()) - metrics.badgeGap
         }
         if (showInteractionBadge) {
-            drawBadge(canvas, context.getString(R.string.core_badge_interaction), right, top, 0xFFFB7299.toInt())
+            right = drawBadge(canvas, context.getString(R.string.core_badge_interaction), right, top, 0xFFFB7299.toInt()) - metrics.badgeGap
+        }
+        // 类型角标（历史记录「国创/电视剧/番剧…」与直播「直播中/未开播」），
+        // 对齐官方：粉底白字（未开播灰底），排在功能角标左侧
+        if (typeBadgeText.isNotBlank()) {
+            drawBadge(canvas, typeBadgeText, right, top, typeBadgeColor)
         }
     }
 
@@ -399,7 +413,9 @@ class VideoCoverMetaOverlayView @JvmOverloads constructor(
     }
 
     private companion object {
-        private const val PLAYER_PROGRESS_COLOR = 0xFF0088BB.toInt()
+        // 官方历史记录观看进度条同款 B 站粉
+        private const val PLAYER_PROGRESS_COLOR = 0xFFFB7299.toInt()
+        private val TYPE_BADGE_COLOR_DEFAULT = 0xFFFB7299.toInt()
     }
 
     private class OverlayAssets(
@@ -1179,7 +1195,7 @@ private class LightCardMetrics private constructor(context: Context) {
     val avatarStart = dimen(context, R.dimen.px2)
     val ownerTextMarginEnd = dimen(context, R.dimen.px8)
     val coverGradientHeight = dimen(context, R.dimen.px70)
-    val progressHeight = dimen(context, R.dimen.px3)
+    val progressHeight = dimen(context, R.dimen.px4)
     val metaIconSize = dimen(context, R.dimen.px30)
     val coverMetaStart = dimen(context, R.dimen.px10)
     val coverMetaBottom = dimen(context, R.dimen.px10)

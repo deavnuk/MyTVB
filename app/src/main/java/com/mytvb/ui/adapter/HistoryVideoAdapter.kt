@@ -211,7 +211,8 @@ class HistoryVideoAdapter(
                 showDanmakuCount = false,
                 durationText = "",
                 showChargeBadge = false,
-                showInteractionBadge = false
+                showInteractionBadge = false,
+                typeBadgeText = ""
             )
         }
 
@@ -222,8 +223,9 @@ class HistoryVideoAdapter(
             views.textLayer.isSelected = isFocused
             views.textLayer.setTitle(item.title.ifBlank { item.showTitle }, lines = 2)
             val ownerName = item.displayAuthorName
+            // 剧集类条目 author_name 为空：第二行对齐官方网页改显分集标题（「第10集」「第8话 庆忌（下）」）
             views.textLayer.setOwner(
-                ownerText = ownerName,
+                ownerText = ownerName.ifBlank { item.showTitle },
                 showAvatar = ownerName.isNotBlank()
             )
 
@@ -238,7 +240,6 @@ class HistoryVideoAdapter(
             }
 
             val durationText = when {
-                item.history?.business == "live" && item.badge.isNotBlank() -> item.badge
                 isWatchedComplete(progressValue, durationValue) -> views.root.context.getString(R.string.adapter_watched_complete)
                 durationValue > 0L -> "${NumberUtils.formatDuration(progressValue)}/${NumberUtils.formatDuration(durationValue)}"
                 item.tagName.isNotBlank() -> item.tagName
@@ -248,12 +249,31 @@ class HistoryVideoAdapter(
                 timeText = TimeUtils.formatHistoryViewTime(views.root.context, item.viewAt),
                 deviceDrawableRes = HistoryDeviceIcon.resolve(item.history?.dt ?: 0)?.drawableRes ?: 0
             )
+            // 对齐官方：直播条目右上角「直播中」粉底 /「未开播」灰底（badge 缺失时按
+            // live_status 定文案），右下时长位不占位，落到分区名；剧集类类型角标粉色
+            val isLive = item.history?.business == "live"
+            val typeBadgeText: String
+            val typeBadgeColor: Int
+            if (isLive) {
+                if (item.liveStatus == 1) {
+                    typeBadgeText = item.badge.ifBlank { views.root.context.getString(R.string.adapter_live_streaming) }
+                    typeBadgeColor = 0xFFFB7299.toInt()
+                } else {
+                    typeBadgeText = item.badge.ifBlank { views.root.context.getString(R.string.adapter_live_not_started) }
+                    typeBadgeColor = 0xFF999999.toInt()
+                }
+            } else {
+                typeBadgeText = item.badge
+                typeBadgeColor = 0xFFFB7299.toInt()
+            }
             views.coverMetaOverlay.bind(
                 showPlayCount = false,
                 showDanmakuCount = false,
                 durationText = durationText,
                 showChargeBadge = item.isChargingExclusive,
-                showInteractionBadge = item.isSteinsGate
+                showInteractionBadge = item.isSteinsGate,
+                typeBadgeText = typeBadgeText,
+                typeBadgeColor = typeBadgeColor
             )
 
             ImageLoader.loadVideoCover(

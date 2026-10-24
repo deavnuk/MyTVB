@@ -21,6 +21,8 @@
 
     <!-- ===== adapter：列表項綁定文字 ===== -->
     <string name="adapter_watched_complete">已看完</string>
+    <string name="adapter_live_streaming">直播中</string>
+    <string name="adapter_live_not_started">未開播</string>
     <string name="adapter_portrait">直式</string>
     <string name="adapter_favorited_at_format">收藏於%1$s</string>
     <string name="adapter_default_sign">這個人很懶，什麼都沒寫</string>

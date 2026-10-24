@@ -227,6 +227,8 @@
     <string name="music">音樂</string>
     <string name="user_follower">粉絲</string>
     <string name="user_following">關注</string>
+    <string name="history_continuation_title">繼續觀看</string>
+    <string name="history_watched_progress">看到 %s</string>
     <string name="user_dynamic">動態</string>
     <string name="my_space">我的空間</string>
     <string name="need_sign_in">該功能需要登入後才可以使用</string>

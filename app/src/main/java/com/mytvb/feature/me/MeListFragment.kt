@@ -69,6 +69,7 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     private val viewModel: MeListViewModel by viewModel()
     private var videoAdapter: VideoAdapter? = null
     private var historyAdapter: HistoryVideoAdapter? = null
+    private var continuationAdapter: ContinuationCardAdapter? = null
     private var swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null
     private var type: String = TYPE_HISTORY
     private var currentPage = 1
@@ -182,6 +183,17 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         (historyAdapter ?: videoAdapter)?.let { adapter ->
             VideoRecyclerViewTuning.apply(binding.recyclerView, adapter)
         }
+        if (type == TYPE_HISTORY) {
+            // 「继续观看」横条：官方同款入口，接口无推荐时保持隐藏
+            continuationAdapter = ContinuationCardAdapter(onItemClick = ::onHistoryVideoClick)
+            binding.recyclerContinuation.adapter = continuationAdapter
+            binding.recyclerContinuation.layoutManager =
+                androidx.recyclerview.widget.LinearLayoutManager(
+                    requireContext(),
+                    androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL,
+                    false,
+                )
+        }
         binding.emptyContainer.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
         binding.btnRetry.setOnClickListener {
@@ -277,6 +289,20 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
     override fun initObserver() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.continuationVideos.collect { list ->
+                    if (type != TYPE_HISTORY) return@collect
+                    val adapter = continuationAdapter ?: return@collect
+                    if (list.isNullOrEmpty()) {
+                        binding.continuationContainer.visibility = View.GONE
+                    } else {
+                        adapter.submitList(list)
+                        binding.continuationContainer.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.uiState.collect { state ->
                     if (type == TYPE_HISTORY) {
                         bindHistoryData(state.historyVideos)
@@ -360,7 +386,10 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
             "page=$currentPage source=${if (currentOpenStartMs > 0L) "open" else "refresh"} hasContent=${hasContentItems()}"
         )
         when (type) {
-            TYPE_HISTORY -> viewModel.loadHistory(currentPage, pageSize)
+            TYPE_HISTORY -> {
+                viewModel.loadHistory(currentPage, pageSize)
+                viewModel.loadHistoryContinuation()
+            }
             TYPE_LATER -> viewModel.loadLaterWatch()
         }
     }

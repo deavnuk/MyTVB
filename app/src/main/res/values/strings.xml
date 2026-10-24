@@ -388,6 +388,8 @@
     <string name="music">音乐</string>
     <string name="user_follower">粉丝</string>
     <string name="user_following">关注</string>
+    <string name="history_continuation_title">继续观看</string>
+    <string name="history_watched_progress">看到 %s</string>
     <string name="user_dynamic">动态</string>
     <string name="my_space">我的空间</string>
     <string name="need_sign_in">该功能需要登录后才可以使用</string>

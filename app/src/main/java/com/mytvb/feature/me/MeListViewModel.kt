@@ -37,6 +37,10 @@ class MeListViewModel(
     private val _hasMore = MutableStateFlow(true)
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
+    /** 历史页「继续观看」推荐；null=不可用（接口无数据/结构未收录解析失败），UI 隐藏横条。 */
+    private val _continuationVideos = MutableStateFlow<List<HistoryVideoModel>?>(null)
+    val continuationVideos: StateFlow<List<HistoryVideoModel>?> = _continuationVideos.asStateFlow()
+
     private var historyCursorViewAt: Long = 0
     private var lastHistoryPayloadSignature = ""
     private var lastLaterPayloadSignature = ""
@@ -67,6 +71,16 @@ class MeListViewModel(
     }
 
     fun isLoggedIn(): Boolean = userRepository.isLoggedIn()
+
+    /** 历史页「继续观看」；失败静默（无推荐是常态，不占错误通道）。 */
+    fun loadHistoryContinuation() {
+        if (!userRepository.isLoggedIn()) return
+        viewModelScope.launch {
+            runCatching { userRepository.getHistoryContinuation() }
+                .onSuccess { _continuationVideos.value = it }
+                .onFailure { AppLog.d("MePerf", "historyContinuation failed: ${it.message}") }
+        }
+    }
 
     fun loadHistory(page: Int, pageSize: Int) {
         val restartFirstPage = page <= 1

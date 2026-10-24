@@ -1,5 +1,7 @@
 package com.mytvb.repository
 
+import com.google.gson.reflect.TypeToken
+import com.mytvb.core.common.json.GsonHolder
 import com.mytvb.model.BaseResponse
 import com.mytvb.model.user.UserStatModel
 import com.mytvb.model.user.UserSpaceInfo
@@ -7,6 +9,7 @@ import com.mytvb.model.user.UserDetailInfoModel
 import com.mytvb.model.user.CheckRelationModel
 import com.mytvb.model.user.GetFollowUserWrapper
 import com.mytvb.model.video.HistoryListResponse
+import com.mytvb.model.video.HistoryVideoModel
 import com.mytvb.model.video.LaterWatchWrapper
 import com.mytvb.model.video.UserDynamicResponse
 import com.mytvb.model.video.AllDynamicResponse
@@ -120,6 +123,34 @@ class UserRepository(
                 )
             }
         }
+
+    /**
+     * 历史页「继续观看」推荐。该接口 data 结构官方文档未收录（仅有 null 样本），
+     * 防御式解析：data 非空时取其第一个对象数组成员按历史条目模型反序列化，
+     * 只保留有 bvid 且有进度（看过一部分）的条目；解析不出则返回 null，调用方隐藏入口。
+     */
+    suspend fun getHistoryContinuation(): List<HistoryVideoModel>? =
+        runCatching {
+            val response = sessionGateway.syncAuthState(
+                apiService.getHistoryContinuation(),
+                source = "getHistoryContinuation"
+            )
+            if (!response.isSuccess) return@runCatching null
+            val data = response.data ?: return@runCatching null
+            val array = data.entrySet()
+                .asSequence()
+                .mapNotNull { it.value.asJsonArrayOrNull() }
+                .firstOrNull { it.size() > 0 }
+                ?: return@runCatching null
+            val items = GsonHolder.DEFAULT.fromJson(
+                array,
+                TypeToken.getParameterized(List::class.java, HistoryVideoModel::class.java).type
+            ) as List<HistoryVideoModel>
+            items.filter { it.bvid.isNotBlank() && it.progress > 0L }.takeIf { it.isNotEmpty() }
+        }.getOrNull()
+
+    private fun com.google.gson.JsonElement.asJsonArrayOrNull(): com.google.gson.JsonArray? =
+        if (isJsonArray) asJsonArray else null
 
     /**
      * 立刻返回稍后观看的主接口数据。番剧弹幕数补全异步进行，完成后通过

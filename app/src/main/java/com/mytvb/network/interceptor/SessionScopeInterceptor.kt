@@ -22,7 +22,30 @@ class SessionScopeInterceptor : Interceptor {
         val request = chain.request().newBuilder()
             .tag(RequestSessionSnapshot::class.java, RequestSessionScope.capture())
             .build()
-        return chain.proceed(request)
+        try {
+            return chain.proceed(request)
+        } catch (error: ObsoleteSessionException) {
+            // The response crossed a session transition (login/logout/cookie refresh)
+            // while in flight and was closed inside the network layer before its
+            // stale Set-Cookie could reach the jar. Only application interceptors
+            // may call proceed() more than once, so the one-shot re-issue lives
+            // here under a CURRENT-generation snapshot instead of in the network
+            // layer (a second proceed there crashes with IllegalStateException —
+            // reproduced as a crash on scan-login when many in-flight reads go
+            // stale at once). A second stale result surfaces as-is.
+            val retry = request.newBuilder()
+                .tag(RequestSessionSnapshot::class.java, RequestSessionScope.capture())
+                .build()
+            return chain.proceed(retry)
+        }
+    }
+}
+
+/** Thrown by [SessionScopeResponseInterceptor]; ProtocolException so OkHttp's retry layer won't re-send. */
+class ObsoleteSessionException(cause: Throwable) :
+    ProtocolException("Obsolete session response") {
+    init {
+        initCause(cause)
     }
 }
 
@@ -30,14 +53,17 @@ class SessionScopeInterceptor : Interceptor {
 class SessionScopeResponseInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val response = chain.proceed(chain.request())
+        val snapshot = chain.request().tag(RequestSessionSnapshot::class.java)
+            ?: return response
         try {
-            chain.request().tag(RequestSessionSnapshot::class.java)
-                ?.let(RequestSessionScope::requireCurrent)
+            RequestSessionScope.requireCurrent(snapshot)
             return response
         } catch (error: Exception) {
             response.close()
-            // OkHttp's dispatcher expects IO failures; translate back at the app boundary.
-            throw ProtocolException("Obsolete session response").apply { initCause(error) }
+            // Never proceed() a second time here: network interceptors must call
+            // proceed exactly once (OkHttp hard invariant). The re-issue is done by
+            // SessionScopeInterceptor at the application layer.
+            throw ObsoleteSessionException(error)
         }
     }
 }

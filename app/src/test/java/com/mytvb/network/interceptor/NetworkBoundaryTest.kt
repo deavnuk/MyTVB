@@ -51,6 +51,31 @@ class NetworkBoundaryTest {
         assertTrue(closed)
     }
 
+    @Test fun applicationLayerReissuesOnceUnderCurrentGeneration() {
+        var calls = 0
+        val request = Request.Builder().url("https://api.bilibili.com/x/player").build()
+        val response = SessionScopeInterceptor().intercept(chain(request) {
+            calls++
+            if (calls == 1) throw ObsoleteSessionException(StaleSessionException())
+            response(it)
+        })
+        response.close()
+        assertEquals(2, calls)
+    }
+
+    @Test fun secondStaleRetrySurfacesAsIs() {
+        var calls = 0
+        val request = Request.Builder().url("https://api.bilibili.com/x/player").build()
+        try {
+            SessionScopeInterceptor().intercept(chain(request) {
+                calls++
+                throw ObsoleteSessionException(StaleSessionException())
+            })
+            fail("Second stale retry accepted")
+        } catch (_: ObsoleteSessionException) { }
+        assertEquals(2, calls)
+    }
+
     @Test fun loginAndWritesAreNotStampedAsReadRequests() {
         val interceptor = SessionScopeInterceptor()
         for (request in listOf(

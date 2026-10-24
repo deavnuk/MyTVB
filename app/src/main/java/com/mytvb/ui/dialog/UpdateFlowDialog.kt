@@ -122,6 +122,8 @@ object UpdateFlowDialog {
             lp.weight = 1f
             layoutParams = lp
         }
+        // 滚动条位置诊断：滚动过程记录 thumb 几何（ScrollBarDebug）
+        notesScroll.scrollDebugTag = "otaNotes"
         notesScroll.addView(ScaledTextView(context).apply {
             val notes = if (releaseInfo.releaseNotes.isNotBlank()) {
                 context.getString(R.string.update_release_notes_format, releaseInfo.releaseNotes)
@@ -210,6 +212,16 @@ object UpdateFlowDialog {
         // 初始焦点分配覆盖，必须等首次布局完成
         root.post {
             cancelButton?.requestFocus()
+            // 布局稳定后的滚动区几何快照：内层正文区 + 外层 wrap 滚动容器是否可滚
+            val notesChild = notesScroll.getChildAt(0)
+            val outerScroll = root.parent as? com.mytvb.ui.widget.NonFocusableScrollView
+            outerScroll?.scrollDebugTag = "otaOuter"
+            com.mytvb.core.common.log.AppLog.i(
+                "ScrollBarDebug",
+                "[otaNotes] settled notesH=${notesScroll.height} childH=${notesChild?.height} " +
+                    "maxHeight=${notesScroll.maxHeight} scrollable=${notesScroll.height < (notesChild?.height ?: 0)} | " +
+                    "outerH=${outerScroll?.height} outerChildH=${root.height} outerScrollable=${((outerScroll?.height ?: 0) < root.height)}"
+            )
         }
     }
 

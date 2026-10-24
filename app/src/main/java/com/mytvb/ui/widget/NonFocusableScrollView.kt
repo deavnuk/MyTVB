@@ -39,6 +39,13 @@ class NonFocusableScrollView @JvmOverloads constructor(
     /** 自绘 thumb 颜色。 */
     var scrollBarColor: Int = 0x59FFFFFF
 
+    /**
+     * 滚动条诊断日志标签；null 不打。滚动时（节流）记录 scrollY/视口高/内容高，
+     * 用于定位"滚动条位置与内容不对应"类问题（公式核对无误仍需实测数据）。
+     */
+    var scrollDebugTag: String? = null
+    private var lastLoggedThumbY = Float.NEGATIVE_INFINITY
+
     private val scrollBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
@@ -61,8 +68,25 @@ class NonFocusableScrollView @JvmOverloads constructor(
         }
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+    /**
+     * 常驻自绘滚动条必须画在 [draw] 的 super 之后（Step 6 滚动条阶段，canvas 已
+     * restore 滚动平移），不能画在 onDraw（Step 3）：Android 15 实测（MuMu）onDraw
+     * 的画布处于 scrollY 平移内，thumb 会被当作内容一起滚走——顶部钉死、长度
+     * 缩短、滚到底时整条平移出轨道消失。系统滚动条位置从来正确正是因为它画在
+     * draw 尾部阶段。
+     */
+    /**
+     * 常驻自绘 thumb 只能画在 [draw] 的 super 之后，且必须做矩阵补偿。
+     *
+     * Android 15（MuMu 实测）的硬件加速路径把 View 的 scrollY 平移注入
+     * RecordingCanvas 的初始矩阵——onDraw/dispatchDraw/draw 尾部任何阶段画的
+     * 自绘内容都会被当作正文一起滚走（症状：thumb 顶部钉死轨道顶、长度随滚动
+     * 缩短、滚到底整条平移出轨道消失）。onScrollChanged 时读取画布矩阵，
+     * 发现被平移多少就预补偿多少（dy≈-scrollY）；无此行为的平台 dy=0 不补偿，
+     * 行为不变。
+     */
+    override fun draw(canvas: Canvas) {
+        super.draw(canvas)
         if (!persistentScrollBar || childCount == 0 || height == 0) return
         val child = getChildAt(0)
         val range = child.height + paddingTop + paddingBottom - height
@@ -70,12 +94,35 @@ class NonFocusableScrollView @JvmOverloads constructor(
         val trackH = height - paddingTop - paddingBottom
         val thumbH = maxOf(scrollBarWidth * 3, trackH * trackH / (trackH + range))
         val thumbY = paddingTop + (trackH - thumbH) * (scrollY.toFloat() / range)
+        var shift = 0f
+        if (scrollY != 0) {
+            shift = try {
+                val m = android.graphics.Matrix()
+                canvas.getMatrix(m)
+                val values = FloatArray(9)
+                m.getValues(values)
+                val dy = values[android.graphics.Matrix.MTRANS_Y]
+                val debugTag = scrollDebugTag
+                if (debugTag != null && Math.abs(thumbY - lastLoggedThumbY) >= 8f) {
+                    lastLoggedThumbY = thumbY
+                    com.mytvb.core.common.log.AppLog.d(
+                        "ScrollBarDebug",
+                        "[$debugTag] thumbY=$thumbY thumbH=$thumbH range=$range " +
+                            "scrollY=$scrollY canvasDy=$dy"
+                    )
+                }
+                if (dy < -0.5f) -dy else 0f
+            } catch (t: Throwable) {
+                // 硬件画布不支持 getMatrix 的平台没有该平移行为，无需补偿
+                0f
+            }
+        }
         scrollBarPaint.color = scrollBarColor
         scrollBarRect.set(
             (width - paddingRight - scrollBarWidth).toFloat(),
-            thumbY,
+            thumbY + shift,
             (width - paddingRight).toFloat(),
-            thumbY + thumbH
+            thumbY + shift + thumbH
         )
         canvas.drawRoundRect(scrollBarRect, scrollBarWidth / 2f, scrollBarWidth / 2f, scrollBarPaint)
     }

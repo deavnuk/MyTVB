@@ -265,7 +265,8 @@
     <string name="sign_in_qr_failed_title">Failed to load QR code</string>
     <string name="sign_in_qr_retry">Tap to retry</string>
     <string name="sign_in_qr_countdown_format">Expires in %1$s</string>
-    <string name="sign_in_qr_scanned">Scanned. Please confirm on your phone.</string>
+    <string name="sign_in_qr_scan_success">QR code scanned</string>
+    <string name="sign_in_qr_confirm_hint">Please confirm on your phone</string>
     <string name="sign_in_poll_network_error">Network unavailable. Sign-in cannot complete. Check your connection.</string>
     <string name="science">Science</string>
     <string name="screen_ratio">Screen scale</string>

@@ -393,8 +393,9 @@ class SeriesDetailContentAdapter(
             binding.topTitle.setText(R.string.episodes)
             this.items = items
             this.currentEpId = currentEpId
-            // 默认正序：没看过的番剧从第 1 集开始往后排列
-            inReverseOrder = false
+            // 有观看记录→默认倒序（最新一集排最前，追番时少翻列表直接到最新进度）；
+            // 没看过→正序从第 1 集开始
+            inReverseOrder = currentEpId > 0L
             binding.buttonOrder.visibility = if (items.size > 1) View.VISIBLE else View.GONE
             if (binding.buttonOrder.visibility != View.VISIBLE) {
                 orderButtonFocused = false
@@ -404,7 +405,9 @@ class SeriesDetailContentAdapter(
 
         private fun bindEpisodes() {
             submitOrderedItems(locateCurrent = true)
-            binding.textOrder.setText(R.string.positive_sequence)
+            binding.textOrder.setText(
+                if (inReverseOrder) R.string.negative_sequence else R.string.positive_sequence
+            )
         }
 
         // 倒序通过提交反转列表实现：reverseLayout 会让铺不满一行的内容整体靠右
@@ -424,7 +427,7 @@ class SeriesDetailContentAdapter(
         }
 
         // 看过→定位上次看的那集（居中偏左，UGC 详情页合集列表同款）；
-        // 没看过/进度集不在列表→回到首位（正序=第 1 集）
+        // 没看过/进度集不在列表→回到首位（正序=第 1 集，倒序=最新一集）
         private fun scrollToCurrentEpisode(ordered: List<EpisodeModel>) {
             val index = if (currentEpId > 0L) {
                 ordered.indexOfFirst { it.id == currentEpId }

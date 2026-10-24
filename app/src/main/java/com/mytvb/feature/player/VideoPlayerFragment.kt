@@ -990,7 +990,12 @@ class VideoPlayerFragment : Fragment() {
                         isSettingShowing = playerView.isSettingViewShowing(),
                         hideSetting = { playerView.showHideSettingView(false) },
                         isEndPanelShowing = playbackEndPanelController.isShowing(),
-                        hideEndPanel = { playbackEndPanelController.hide() },
+                        // 播完推荐页按返回直接退出宿主（与 exitPlayer 同路径：临时摘回调让返回穿透）
+                        exitPlayerFromEndPanel = {
+                            isEnabled = false
+                            exitPlayerHost()
+                            isEnabled = true
+                        },
                         isAutoPlayPending = autoPlayController.hasPendingAction,
                         cancelAutoPlayAndShowEndPanel = {
                             // 隐藏右下角倒计时卡=取消连播（触发 clearPendingContinuation），并展示推荐页

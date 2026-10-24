@@ -380,7 +380,7 @@ class PlaybackUiCoordinator {
         isSettingShowing: Boolean,
         hideSetting: () -> Unit,
         isEndPanelShowing: Boolean = false,
-        hideEndPanel: () -> Unit = {},
+        exitPlayerFromEndPanel: () -> Unit = {},
         isAutoPlayPending: Boolean = false,
         cancelAutoPlayAndShowEndPanel: () -> Unit = {},
         isControllerFullyVisible: Boolean,
@@ -390,7 +390,9 @@ class PlaybackUiCoordinator {
     ) {
         when {
             isSettingShowing -> hideSetting()
-            isEndPanelShowing -> hideEndPanel()
+            // 播完推荐页按返回=直接退出播放器：视频已播完，返回意图就是离开，
+            // 不再先关面板多留一级（PlayerActivity 同时跳过「再按一次退出」确认）
+            isEndPanelShowing -> exitPlayerFromEndPanel()
             // 播完连播倒计时中按返回：取消连播并展示播放结束推荐页（优先于关控制栏/退出）
             isAutoPlayPending -> cancelAutoPlayAndShowEndPanel()
             hasVisiblePanel() -> hidePanel()

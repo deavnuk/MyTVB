@@ -1304,7 +1304,8 @@ class PlayerActivity : BaseActivity<FragmentVideoPlayerBinding>() {
                     isSettingShowing = playerView.isSettingViewShowing(),
                     hideSetting = { playerView.showHideSettingView(false) },
                     isEndPanelShowing = playbackEndPanelController.isShowing(),
-                    hideEndPanel = { playbackEndPanelController.hide() },
+                    // 播完推荐页按返回直接退出：视频已结束，不再先关面板、也不走「再按一次退出」确认
+                    exitPlayerFromEndPanel = { finish() },
                     isAutoPlayPending = autoPlayController.hasPendingAction,
                     cancelAutoPlayAndShowEndPanel = {
                         // 隐藏右下角倒计时卡=取消连播（触发 clearPendingContinuation），并展示推荐页

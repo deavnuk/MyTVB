@@ -200,13 +200,13 @@
         android:layout_height="@dimen/px60"
         android:visibility="gone"/>
     <!-- 播放结束推荐页：连播倒计时期间按返回键=取消连播并展示本页
-         （黑底+重播按钮+相关推荐网格，对标 YouTube TV 播完页形态）。
+         （半透明黑底+重播按钮+相关推荐网格，对标 YouTube TV 播完页形态）。
          用应用内覆盖层而非 Dialog，规避电视端弹窗裁高问题 -->
     <FrameLayout
         android:id="@+id/view_play_end_panel"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#F2000000"
+        android:background="#B3000000"
         android:clickable="true"
         android:descendantFocusability="afterDescendants"
         android:visibility="gone">

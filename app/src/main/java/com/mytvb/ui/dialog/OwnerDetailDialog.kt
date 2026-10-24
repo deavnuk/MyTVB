@@ -40,6 +40,8 @@ import com.mytvb.core.ui.focus.tv.GridTvFocusStrategy
 import com.mytvb.core.ui.focus.tv.TvDataChangeReason
 import com.mytvb.core.ui.focus.tv.TvListFocusController
 import com.mytvb.core.ui.image.ImageLoader
+import com.mytvb.core.common.coroutine.catchingRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -319,6 +321,22 @@ class OwnerDetailDialog(
                     // 后台并行预载回放+全部合集的第一页：命中即切（不用等视频流翻完 10 页）。
                     // 合集正序排列（老视频在前），从合集里点进来的老视频大概率第一页就命中；
                     // 不在任何合集/回放里的视频，由视频流搜索兜底。
+                    if (currentSeasonId > 0L) {
+                        // 已知归属（播放页 ugcSeason.id）：该合集/系列 tab 直接并行翻页搜索，
+                        // 不必等投稿流烧完 10 页——投稿按最新排序，老视频页数很深。
+                        tabStates.drop(1).firstOrNull {
+                            it.seasonId == currentSeasonId || it.seriesId == currentSeasonId
+                        }?.let { target ->
+                            target.searching = true
+                            AppLog.i(
+                                TAG,
+                                "locate: parallel search on known collection tab=${target.title} id=$currentSeasonId"
+                            )
+                        }
+                    }
+                    // UP 有直播回放系列时 fallback 链迟早要搜它：与投稿流并行翻页，
+                    // 回放视频（不在投稿流里）的定位从"先烧完 10 页投稿"缩短为回放流自身翻页耗时。
+                    replayState?.searching = true
                     tabStates.drop(1).forEach { state ->
                         if (!state.loadedFirstPage && state.items.isEmpty()) loadTabPage(state)
                     }
@@ -503,7 +521,7 @@ class OwnerDetailDialog(
                 state.prefetchJob = null
                 existingPrefetch?.cancel()
             }
-            val result = runCatching {
+            val result = catchingRequest {
                 if (prefetchHit && existingPrefetch != null) {
                     state.prefetchJob = null
                     existingPrefetch.await()
@@ -583,8 +601,9 @@ class OwnerDetailDialog(
                 }
                 handleSearchProgress(state, pageToLoad, stillCurrent)
                 // 当前页渲染成功后，立即在后台预取下一页，把网络往返藏进用户浏览过程。
-                // 递归搜索路径也会消费它，让"从旧视频打开"的串行循环每步都更快。
-                if (stillCurrent) {
+                // 递归搜索路径也会消费它，让"从旧视频打开"的串行循环每步都更快；
+                // 搜索中的后台 tab 同样预取（并行定位线的翻页间隔也砍半）。
+                if (stillCurrent || state.searching) {
                     schedulePrefetch(state, nextPageOf(state))
                 }
                 if (state.searching && state.hasMore && state.page < MAX_SEARCH_PAGES) {
@@ -977,6 +996,7 @@ class OwnerDetailDialog(
                     }
                 }
                 .onFailure {
+                    if (it is CancellationException) return@onFailure
                     AppLog.e(TAG, "toggleFollow failed", it)
                     toast(it.message ?: context.getString(R.string.dialog_action_failed))
                 }

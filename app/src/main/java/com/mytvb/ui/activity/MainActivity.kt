@@ -818,7 +818,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
             if (binding.myTabView.isHomeTabSelected()) {
                 return false
             }
-            onTabSelected(HOME_TAB_INDEX)
+            // 走 selectTab 而非直接回调 onTabSelected：前者才会更新侧栏 currentSelectedIndex
+            // 与高亮，否则下次返回时 isHomeTabSelected() 读到旧值，退出链永远卡在这一步。
+            binding.myTabView.selectTab(HOME_TAB_INDEX)
             return true
         }
         return binding.myTabView.focusHomeTab()

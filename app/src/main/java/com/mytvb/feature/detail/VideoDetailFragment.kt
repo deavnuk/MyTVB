@@ -104,7 +104,7 @@ class VideoDetailFragment : androidx.fragment.app.Fragment() {
     private var isFavorited = false
 
     private var ugcEpisodes: List<UgcEpisode> = emptyList()
-    private var ugcReverseOrder = true
+    private var ugcReverseOrder = false
 
     private var pendingFocusAid: Long = 0
 

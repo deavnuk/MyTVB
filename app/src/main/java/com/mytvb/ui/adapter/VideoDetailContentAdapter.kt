@@ -580,7 +580,7 @@ class VideoDetailContentAdapter(
         fun bind(title: String, items: List<VideoModel>, isReverse: Boolean, currentAid: Long) {
             binding.topTitle.text = title
             binding.textOrder.text = binding.root.context.getString(
-                if (isReverse) R.string.positive_sequence else R.string.negative_sequence
+                if (isReverse) R.string.negative_sequence else R.string.positive_sequence
             )
             if (lastIsReverse != isReverse) {
                 lastIsReverse = isReverse

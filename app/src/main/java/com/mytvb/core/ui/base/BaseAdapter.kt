@@ -208,6 +208,13 @@ abstract class BaseAdapter<MODEL, VH : RecyclerView.ViewHolder> : RecyclerView.A
         onBindContentViewHolder(holder, position)
     }
 
+    override fun onViewRecycled(holder: VH) {
+        // TvListFocusController.suppressOtherFocus 会把非目标子 view 置 isFocusable=false，
+        // 而解除（restoreAllFocus）只遍历当时 attached 的子 view——被抑制后回收、复用到的
+        // holder 会带着 false 残留，复现为"焦点移到某行后 DOWN 失效"。回收时统一复位默认态。
+        holder.itemView.isFocusable = true
+    }
+
     abstract fun onBindContentViewHolder(holder: VH, position: Int)
 
     class LoadMoreViewHolder(view: View) : RecyclerView.ViewHolder(view)

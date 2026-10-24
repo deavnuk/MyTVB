@@ -27,12 +27,21 @@ class TvListFocusController(
 
         /** 刷新焦点抑制的兜底解除时限：目标未获得焦点则强制恢复全部 item 可聚焦。 */
         private const val REFRESH_SUPPRESS_TIMEOUT_MS = 1_000L
+
+        /**
+         * pendingMoveAfterLoadMore 的兜底时限：pending 的正常解除依赖 APPEND 数据落地，
+         * 但加载链可能整段无声（loadMore NO-OP/失败/上游签名跳过 payload），没有
+         * APPEND 到来时 DOWN 键会被永久吞掉（焦点卡死在最后一行）。超时清 pending
+         * 并重试一次 loadMore。
+         */
+        private const val PENDING_LOAD_MORE_TIMEOUT_MS = 2_000L
     }
 
     private val operator = RecyclerViewFocusOperator(recyclerView, adapter)
     private var currentAnchor: TvFocusAnchor? = null
     private var capturedAnchor: TvFocusAnchor? = null
     private var pendingMoveAfterLoadMore: TvFocusAnchor? = null
+    private var pendingMoveSinceUptimeMs = 0L
     private var refreshFocusTarget: Int? = null
     private var userNavigationToken = 0
 
@@ -772,8 +781,15 @@ class TvListFocusController(
             TvFocusMovePolicy.shouldHandleDownAfterStrategyMiss(
                 (recyclerView.layoutManager as? LinearLayoutManager)?.orientation
             )
+        if (shouldHandleDownAtEdge && pendingMoveAfterLoadMore != null &&
+            SystemClock.uptimeMillis() - pendingMoveSinceUptimeMs > PENDING_LOAD_MORE_TIMEOUT_MS
+        ) {
+            logW("move: DOWN pending loadMore TIMEOUT, clearing and retrying loadMore")
+            pendingMoveAfterLoadMore = null
+        }
         if (shouldHandleDownAtEdge && canLoadMore() && pendingMoveAfterLoadMore == null) {
             logD("move: DOWN at bottom, triggering loadMore")
+            pendingMoveSinceUptimeMs = SystemClock.uptimeMillis()
             pendingMoveAfterLoadMore = anchor.copy(source = TvFocusAnchor.Source.PENDING_LOAD_MORE)
             loadMore()
             return true

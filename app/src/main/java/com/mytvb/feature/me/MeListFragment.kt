@@ -135,7 +135,11 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 },
                 onLeftEdge = ::switchToPrevMeTab,
                 onRightEdge = ::switchToNextMeTab,
-                onItemFocused = { position -> lastFocusedHistoryPosition = position },
+                onItemFocused = { position ->
+                    lastFocusedHistoryPosition = position
+                    // 焦点快速下移接近底部时提前一屏触发下一页，别等顶死行底
+                    checkHistoryLoadMore()
+                },
                 onItemFocusedWithView = { view, position ->
                     tvFocusController?.onItemFocused(view, position)
                 },
@@ -221,19 +225,38 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
         binding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
-                if (type == TYPE_HISTORY && (!allowHistoryLoadMore || dy <= 0)) {
+                if (type == TYPE_HISTORY) {
+                    if (dy > 0) checkHistoryLoadMore()
                     return
                 }
                 val layoutManager = binding.recyclerView.layoutManager as? WrapContentGridLayoutManager ?: return
                 val totalItemCount = layoutManager.itemCount
                 val lastVisibleItem = layoutManager.findLastVisibleItemPosition()
-                
+
                 if (!viewModel.loading.value && viewModel.hasMore.value && lastVisibleItem >= totalItemCount - 5) {
                     currentPage++
                     loadData()
                 }
             }
         })
+    }
+
+    /**
+     * 历史页触底加载统一入口：滚动(dy>0)、焦点落卡、控制器到底行 edge 三处共用。
+     * 焦点导航通常 dy=0 不产生滚动事件，必须在 onItemFocused 与数据落地处补查
+     * （动态页同款修法），否则长按下键要等焦点顶死行底才触发加载，等待期间
+     * pendingMoveAfterLoadMore 吞键、加载链一旦无声焦点就卡死。
+     */
+    private fun checkHistoryLoadMore() {
+        if (type != TYPE_HISTORY || !allowHistoryLoadMore) return
+        if (viewModel.loading.value || !viewModel.hasMore.value) return
+        val layoutManager = binding.recyclerView.layoutManager as? WrapContentGridLayoutManager ?: return
+        val totalItemCount = layoutManager.itemCount
+        val lastVisibleItem = layoutManager.findLastVisibleItemPosition()
+        if (lastVisibleItem >= totalItemCount - 5) {
+            currentPage++
+            loadData()
+        }
     }
 
     override fun initData() {
@@ -560,6 +583,8 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 tvFocusController?.onDataChanged(TvDataChangeReason.APPEND)
                 if (type == TYPE_HISTORY) {
                     allowHistoryLoadMore = true
+                    // 追加落地后补查：焦点若仍停在底部附近，立即续拉下一页
+                    checkHistoryLoadMore()
                 }
             }
         }
@@ -785,9 +810,8 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                 }
             },
             loadMore = {
-                if (type == TYPE_HISTORY && allowHistoryLoadMore && !viewModel.loading.value && viewModel.hasMore.value) {
-                    currentPage++
-                    loadData()
+                if (type == TYPE_HISTORY) {
+                    checkHistoryLoadMore()
                 }
             }
         )

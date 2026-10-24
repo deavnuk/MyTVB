@@ -1,7 +1,9 @@
 package com.mytvb.feature.player
 
+import android.view.Gravity
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.LinearLayoutCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -35,6 +37,7 @@ class PlaybackEndPanelController(
         onRightEdge = { true },
         onBottomEdgeDown = { true }
     )
+    private val contentRoot = panel.findViewById<LinearLayoutCompat>(R.id.layout_play_end_content)
 
     init {
         // 推荐数据只有一页（relatedProvider 快照），关掉 BaseAdapter 默认的
@@ -56,6 +59,9 @@ class PlaybackEndPanelController(
         adapter.setDataDeduplicated(items)
         recyclerView.isVisible = items.isNotEmpty()
         relatedTitle.isVisible = items.isNotEmpty()
+        // 无推荐时可见内容只剩重播按钮，整页改垂直居中（按钮自身已水平居中）；
+        // 有推荐时恢复默认顶部起始布局，两种形态每次 show 对称切换
+        contentRoot.gravity = if (items.isEmpty()) Gravity.CENTER else Gravity.TOP
         if (!panel.isVisible) {
             panel.visibility = View.VISIBLE
         }

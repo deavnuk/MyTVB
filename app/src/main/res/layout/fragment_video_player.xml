@@ -211,6 +211,7 @@
         android:descendantFocusability="afterDescendants"
         android:visibility="gone">
         <androidx.appcompat.widget.LinearLayoutCompat
+            android:id="@+id/layout_play_end_content"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"

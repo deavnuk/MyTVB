@@ -5,6 +5,7 @@ on:
       - main
     paths:
       - app/build.gradle.kts
+      - gradle/wrapper/gradle-wrapper.properties
   workflow_dispatch:
     inputs:
       force_build:

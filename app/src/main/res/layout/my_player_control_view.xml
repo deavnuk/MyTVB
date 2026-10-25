@@ -142,7 +142,8 @@
             app:touch_target_height="60dp"
             app:bar_height="@dimen/px6"
             app:scrubber_drawable="@drawable/ic_progress_head"
-            app:played_color="#FF0088BB"/>
+            app:played_color="#E6FB7299"
+            app:unplayed_color="#40FFFFFF"/>
         <FrameLayout
             android:id="@+id/view_bottom_controller"
             android:layout_width="match_parent"

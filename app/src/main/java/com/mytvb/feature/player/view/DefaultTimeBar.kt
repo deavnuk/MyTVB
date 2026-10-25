@@ -6,6 +6,8 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Point
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.os.Bundle
@@ -38,8 +40,8 @@ class DefaultTimeBar @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr), TimeBar {
 
     companion object {
-        /** 章节起点竖线：白 70%。 */
-        private const val VIEW_POINT_MARKER_COLOR = 0xB3FFFFFF.toInt()
+        /** 章节段间间隙：物理 px，与收起态 ChapterSegmentBarView.GAP_PX 一致。 */
+        private const val VIEW_POINT_GAP_PX = 4f
     }
 
     private val listeners = CopyOnWriteArraySet<TimeBar.OnScrubListener>()
@@ -64,7 +66,11 @@ class DefaultTimeBar @JvmOverloads constructor(
     private val sponsorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var sponsorSegments: List<SponsorSegment> = emptyList()
     private var sponsorDurationMs: Long = 0L
-    private val viewPointPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    // 章节间隙用 CLEAR 擦回透明（进度条底是渐变遮罩非纯色，不能用固定色盖），
+    // 透出的就是遮罩/画面，与收起态"没画就是间隙"观感一致
+    private val viewPointGapPaint = Paint().apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    }
     private var viewPointSegments: List<NormalizedViewPointSegment> = emptyList()
     private var viewPointDurationMs: Long = 0L
 
@@ -340,24 +346,6 @@ class DefaultTimeBar @JvmOverloads constructor(
             canvas.drawRect(drawnPosition, playedPaint)
         }
 
-        // 章节（view_points）只画起点白竖线，不铺段底色：进度语义统一为
-        // 粉色=已播（played_color）、白 25%=未播，与收起态 ChapterSegmentBarView 一致；
-        // 曾用粉 60% 整段铺块区分章节，与已播色叠加后观感发紫、底板抢进度语义，已去。
-        if (viewPointSegments.isNotEmpty() && viewPointDurationMs > 0L) {
-            viewPointPaint.color = VIEW_POINT_MARKER_COLOR
-            val markerHalfHeight = (barHeight / 2 + dpToPx(3)).toFloat()
-            val markerCenterY = (barTop + barBottom) / 2f
-            for (segment in viewPointSegments) {
-                if (segment.fromMs <= 0L) continue
-                val markerX = barLeft + (barWidth * segment.fromMs.toFloat() / viewPointDurationMs)
-                canvas.drawRect(
-                    markerX - dpToPx(1), markerCenterY - markerHalfHeight,
-                    markerX + dpToPx(1), markerCenterY + markerHalfHeight,
-                    viewPointPaint
-                )
-            }
-        }
-
         // 空降助手标记：在进度之上、进度条头之下绘制
         if (sponsorSegments.isNotEmpty() && sponsorDurationMs > 0L) {
             for (segment in sponsorSegments) {
@@ -367,6 +355,21 @@ class DefaultTimeBar @JvmOverloads constructor(
                 val right = barLeft + (barWidth * endRatio)
                 sponsorPaint.color = (segment.categoryColor() and 0x00FFFFFFL).toInt() or 0x99000000.toInt()
                 canvas.drawRect(left, drawnBarTop.toFloat(), right, drawnBarBottom.toFloat(), sponsorPaint)
+            }
+        }
+
+        // 章节（view_points）分隔：与收起态一致的断线分隔——章节起点处擦出
+        // 4px 透明间隙（切断其下所有层），放在空降块之后、播放头之前（头部不被擦）。
+        // 高度用 drawnBarTop/Bottom 含焦点加宽，焦点态间隙同步变高不露馅。
+        if (viewPointSegments.isNotEmpty() && viewPointDurationMs > 0L) {
+            for (segment in viewPointSegments) {
+                if (segment.fromMs <= 0L) continue
+                val gapX = barLeft + (barWidth * segment.fromMs.toFloat() / viewPointDurationMs)
+                canvas.drawRect(
+                    gapX - VIEW_POINT_GAP_PX / 2, drawnBarTop.toFloat(),
+                    gapX + VIEW_POINT_GAP_PX / 2, drawnBarBottom.toFloat(),
+                    viewPointGapPaint
+                )
             }
         }
 

@@ -25,7 +25,10 @@ class SponsorProgressMarkerView @JvmOverloads constructor(
     private var chapterStartsMs: List<Long> = emptyList()
     private var chapterDurationMs: Long = 0L
 
-    private val playedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0088BB.toInt() }
+    // 已播进度统一 B 站粉 90%：与收起态章节条 ChapterSegmentBarView、展开态
+    // DefaultTimeBar(played_color #E6FB7299) 三处同色；曾用 #0088BB 蓝造成
+    // 无章节视频收起态与章节视频观感割裂
+    private val playedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6FB7299.toInt() }
     private val segmentPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val chapterMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = CHAPTER_MARKER_COLOR

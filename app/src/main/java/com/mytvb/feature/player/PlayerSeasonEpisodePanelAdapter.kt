@@ -163,12 +163,9 @@ class PlayerSeasonEpisodePanelAdapter(
             binding.textPubDate.text = TimeUtils.formatPubDate(item.pubDate)
             binding.textPubDate.visibility =
                 if (item.pubDate > 0L) View.VISIBLE else View.INVISIBLE
-            ImageLoader.load(
-                binding.imageCover,
-                item.cover,
-                R.drawable.default_video,
-                R.drawable.default_video
-            )
+            // 必须走 loadVideoCover（16:9 规格）：普通 load 拼方图规格 @480w_480h_1c，
+            // 16:9 封面先被 CDN 居中裁成 1:1、再被 5:3 框 centerCrop 二次裁切，构图严重损失
+            ImageLoader.loadVideoCover(binding.imageCover, item.cover)
             // 封面底部信息条：样式与首页推荐卡片一致（播放量/弹幕/时长）
             if (item.playCount > 0L) {
                 binding.groupPlay.visibility = View.VISIBLE

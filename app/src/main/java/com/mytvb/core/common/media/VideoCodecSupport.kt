@@ -300,11 +300,17 @@ object VideoCodecSupport {
      */
     fun defaultPreferredCodec(context: Context): VideoCodecEnum {
         cachedDefaultCodec?.let { return it }
-        val result = if (isSuspectMediatekTvDevice(context)) {
+        val mtkSuspect = isSuspectMediatekTvDevice(context)
+        val result = if (mtkSuspect) {
             VideoCodecEnum.AVC
         } else {
             VideoCodecEnum.HEVC
         }
+        AppLog.i(
+            TAG,
+            "codec default: mtk-suspect=$mtkSuspect tv=${isTvDevice(context)} " +
+                "default=$result markers=${buildDeviceMarkers()}"
+        )
         cachedDefaultCodec = result
         return result
     }
@@ -316,20 +322,25 @@ object VideoCodecSupport {
     private val mediatekChipPattern = Regex("(^|[| _\\-/])mt\\d{4}")
 
     private fun isSuspectMediatekTvDevice(context: Context): Boolean {
-        val isTv = (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-            Configuration.UI_MODE_TYPE_TELEVISION
-        if (!isTv) return false
-        val markers = buildString {
-            append(Build.HARDWARE).append('|')
-            append(Build.BOARD).append('|')
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                append(Build.SOC_MODEL).append('|')
-                append(Build.SOC_MANUFACTURER)
-            }
-        }.lowercase()
+        if (!isTvDevice(context)) return false
+        val markers = buildDeviceMarkers()
         if (markers.contains("mediatek")) return true
         return mediatekChipPattern.containsMatchIn(markers)
     }
+
+    private fun isTvDevice(context: Context): Boolean =
+        (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
+
+    /** 参与芯片识别的设备字段原文（小写、| 分隔）；识别未命中时据此回溯该往规则里补什么特征。 */
+    private fun buildDeviceMarkers(): String = buildString {
+        append(Build.HARDWARE).append('|')
+        append(Build.BOARD).append('|')
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            append(Build.SOC_MODEL).append('|')
+            append(Build.SOC_MANUFACTURER)
+        }
+    }.lowercase()
 
     @Suppress("unused")
     fun isHdrSupported(context: Context? = null): Boolean {

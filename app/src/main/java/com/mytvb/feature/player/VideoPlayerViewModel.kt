@@ -1081,6 +1081,7 @@ class VideoPlayerViewModel(
             requestedQualityId = preferredQualityId.takeIf { it > 0 } ?: currentSettings.defaultVideoQualityId
             requestedAudioId = preferredAudioQualityId.takeIf { it > 0 } ?: currentSettings.defaultAudioQualityId
             requestedCodec = currentSettings.defaultVideoCodec
+            AppLog.i(TAG, "playback prefs: quality=$requestedQualityId audio=$requestedAudioId codec=$requestedCodec")
             selectedQualityId = null
             selectedAudioId = null
             selectedCodec = null

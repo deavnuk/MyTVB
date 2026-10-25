@@ -170,6 +170,14 @@ internal class VideoPlayerStreamResolver(
             )
         }
         if (routes.isEmpty()) return null
+        AppLog.i(
+            TAG,
+            "dash route plan: quality=$lockedQualityId preferred=$preferredCodec " +
+                "routes=${routes.joinToString(" > ") {
+                    "${it.codec}(${it.videoRepresentation.width}x${it.videoRepresentation.height} " +
+                        "${it.videoRepresentation.bandwidth / 1000000}Mbps)"
+                }}"
+        )
         return DashRoutePlan(
             qualityId = lockedQualityId,
             selectedAudioId = selectedAudio?.id ?: selectedAudioId,

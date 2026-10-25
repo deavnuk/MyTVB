@@ -463,8 +463,11 @@ class DynamicFragment : BaseFragment<FragmentDynamicBinding>(), MainTabFocusTarg
                             }
 
                         MainNavigationViewModel.Event.MenuPressed -> {
-                            currentUpId = 0L
-                            loadData()
+                            // 不能走 loadData()：它最终调 selectUp 时不带 forceRefresh，
+                            // 会被"当前 UP 相同"防重(DynamicViewModel:244)和 videoCache
+                            // 回放双双拦截，静默不联网；必须走与下拉刷新同款的强制路径
+                            swipeRefreshLayout?.isRefreshing = true
+                            refreshCurrentVideoList()
                         }
 
                         MainNavigationViewModel.Event.BackPressed -> Unit

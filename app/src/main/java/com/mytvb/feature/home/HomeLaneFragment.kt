@@ -193,7 +193,9 @@ class HomeLaneFragment : BaseListFragment<HomeLaneSection>(), HomeTabPage {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 mainNavigationViewModel.events.collectLatest { event ->
-                    if (!isResumed || view == null) {
+                    // 同 VideoFeedFragment：宿主 HomeFragment 被 hide 时本页仍 RESUMED，
+                    // 后台期间收到菜单键等事件不许刷新（view.isShown 判真正可见）
+                    if (!isResumed || view?.isShown != true) {
                         return@collectLatest
                     }
                     when (event) {

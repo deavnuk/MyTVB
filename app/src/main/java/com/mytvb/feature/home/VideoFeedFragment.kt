@@ -205,7 +205,11 @@ abstract class VideoFeedFragment : BaseListFragment<VideoModel>(), HomeTabPage, 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 mainNavigationViewModel.events.collectLatest { event ->
-                    if (!isResumed || view == null) {
+                    // isResumed 拦不住宿主 HomeFragment 被 hide 的场景：ViewPager2 内
+                    // 当前二级页恒 RESUMED，宿主 hide 不改子页生命周期，用户在动态等
+                    // 其他 tab 按菜单键时后台首页会跟着刷新。view.isShown 沿父链判定
+                    // 真正可见，宿主 INVISIBLE / 离屏页 view 移除都会返回 false。
+                    if (!isResumed || view?.isShown != true) {
                         return@collectLatest
                     }
                     when (event) {

@@ -103,7 +103,7 @@ class SearchViewModel(
         }
     }
 
-    fun searchAll(keyword: String) {
+    fun searchAll(keyword: String, videoOrder: SearchVideoOrder = SearchVideoOrder.TotalRank) {
         searchAllJob?.cancel()
         pageJobs.values.forEach(Job::cancel)
         pageJobs.clear()
@@ -123,7 +123,12 @@ class SearchViewModel(
             result.fold(
                 onSuccess = { overview ->
                     val categories = buildCategories(overview)
-                    val pageStates = buildInitialPageStates(overview, categories)
+                    val pageStates = buildInitialPageStates(overview, categories).toMutableMap()
+                    // 综合搜索接口不支持 order，非综合排序时视频首屏弃用其数据，
+                    // 交给 loadSearchPage 走 search/type 按 order 拉取第一页
+                    if (videoOrder != SearchVideoOrder.TotalRank) {
+                        pageStates[SearchType.Video] = SearchPageState()
+                    }
                     _searchOverview.value = overview
                     _searchPageStates.value = pageStates
                     _searchCategories.value = categories

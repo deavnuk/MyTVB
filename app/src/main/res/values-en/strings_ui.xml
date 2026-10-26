@@ -105,7 +105,6 @@
     <string name="model_search_order_pub_date">Newest first</string>
     <string name="model_search_order_dm">Most danmaku</string>
     <string name="model_search_order_most_collection">Most favorited</string>
-    <string name="model_search_order_most_comment">Most commented</string>
 
     <!-- ===== core: common infra texts (time / numbers / badges / teen mode) ===== -->
     <string name="core_badge_charge_exclusive">Supporters only</string>

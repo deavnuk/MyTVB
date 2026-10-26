@@ -446,7 +446,18 @@ class SearchNewFragment :
             currentOrder = orders[which]
             updateOrderText()
             if (currentKeyword.isNotBlank()) {
-                performSearch(currentKeyword)
+                if (currentOrder == SearchVideoOrder.TotalRank) {
+                    performSearch(currentKeyword)
+                } else {
+                    // 综合搜索接口不支持 order，只按新排序重拉视频 tab；其余 tab 与排序无关保持不动
+                    viewModel.loadSearchPage(
+                        SearchType.Video,
+                        currentKeyword,
+                        pageSize,
+                        currentOrder,
+                        forceRefresh = true
+                    )
+                }
             }
         }
         activity?.let { ViewUtils.hideSystemBars(it) }
@@ -501,7 +512,7 @@ class SearchNewFragment :
         }
 
         pendingHistoryKeyword = normalized
-        viewModel.searchAll(normalized)
+        viewModel.searchAll(normalized, currentOrder)
     }
 
     private fun onResultItemClick(entry: SearchResultEntry) {

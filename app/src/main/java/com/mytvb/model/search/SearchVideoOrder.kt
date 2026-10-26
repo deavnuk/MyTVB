@@ -13,6 +13,5 @@ enum class SearchVideoOrder(
     Click("click", "最多点击", R.string.model_search_order_click),
     PubDate("pubdate", "最新发布", R.string.model_search_order_pub_date),
     Dm("dm", "最多弹幕", R.string.model_search_order_dm),
-    MostCollection("stow", "最多收藏", R.string.model_search_order_most_collection),
-    MostComment("scores", "最多评论", R.string.model_search_order_most_comment)
+    MostCollection("stow", "最多收藏", R.string.model_search_order_most_collection)
 }

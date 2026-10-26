@@ -107,7 +107,6 @@
     <string name="model_search_order_pub_date">最新發布</string>
     <string name="model_search_order_dm">最多彈幕</string>
     <string name="model_search_order_most_collection">最多收藏</string>
-    <string name="model_search_order_most_comment">最多留言</string>
 
     <!-- ===== core：通用基礎設施文案（時間/數字/徽章/青少年模式） ===== -->
     <string name="core_badge_charge_exclusive">充電專屬</string>

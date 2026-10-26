@@ -210,8 +210,16 @@ class SearchNewFragment :
     }
 
     private fun setupInput() {
-        // 遥控默认用屏上键盘，不跟焦点弹出系统输入法；点按搜索栏才呼出（电视、触屏都走点击）
+        // 焦点即呼出系统输入法：真机盒子无 IME 时 showSoftInput 静默失败，行为退回自家屏上键盘，无损
         binding.editText.showSoftInputOnFocus = false
+        binding.editText.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                showSystemInputMethod()
+            } else {
+                // 系统键盘是浮层，焦点移去自家键盘/列表时不收会一直盖在下半屏
+                hideSystemInputMethod()
+            }
+        }
         binding.editText.setOnClickListener { showSystemInputMethod() }
 
         binding.editText.setOnKeyListener { view, keyCode, event ->
@@ -219,6 +227,10 @@ class SearchNewFragment :
                 return@setOnKeyListener false
             }
             when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    showSystemInputMethod()
+                    true
+                }
                 KeyEvent.KEYCODE_DPAD_LEFT -> mainActivity?.focusLeftFunctionArea(view) == true
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     if (isResultPanelVisible) {
@@ -299,6 +311,12 @@ class SearchNewFragment :
         }
     }
 
+    private fun hideSystemInputMethod() {
+        val inputMethodManager = binding.editText.context
+            .getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        inputMethodManager?.hideSoftInputFromWindow(binding.editText.windowToken, 0)
+    }
+
     private fun setupKeywordColumns() {
         centerAdapter = SearchSuggestAdapter(
             onItemClick = { keyword -> performSearch(keyword) },
@@ -346,13 +364,31 @@ class SearchNewFragment :
         binding.tabSearchResult.enableTouchNavigation(
             binding.viewPagerResult,
             tabFocusable = true,
-            onNavigateDown = { focusCurrentResultContent() }
+            onNavigateDown = { focusCurrentResultContent() },
+            // tab 上方是结果搜索框；不传会走框架默认，焦点越层逃去主页侧栏
+            onNavigateUp = { focusResultHeader() }
         )
         PagePerfLogger.mark("Search", "result_setup_end", setupStartMs)
         return adapter
     }
 
     private fun setupResultHeader() {
+        binding.layoutResultSearchBox.setOnClickListener { enterEditFromResult() }
+        binding.layoutResultSearchBox.setOnKeyListener { view, keyCode, event ->
+            if (event.action != KeyEvent.ACTION_DOWN) {
+                return@setOnKeyListener false
+            }
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    enterEditFromResult()
+                    true
+                }
+                // 不交给框架默认导航：FocusFinder 在 ViewPager+列表布局会跳过 tab 直奔列表深处
+                KeyEvent.KEYCODE_DPAD_DOWN ->
+                    focusSelectedResultTab() || focusCurrentResultContent(view)
+                else -> false
+            }
+        }
         binding.buttonResultBack.apply {
             val goBack = {
                 if (arguments?.containsKey(ARG_KEYWORD) == true) {
@@ -390,7 +426,9 @@ class SearchNewFragment :
             }
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_DOWN -> focusCurrentResultContent(view)
-                KeyEvent.KEYCODE_DPAD_LEFT -> binding.tabSearchResult.focusNearestTabTo(view)
+                KeyEvent.KEYCODE_DPAD_LEFT ->
+                    binding.layoutResultSearchBox.requestFocus() ||
+                        binding.tabSearchResult.focusNearestTabTo(view)
                 else -> false
             }
         }
@@ -540,6 +578,14 @@ class SearchNewFragment :
                 restoreSearchPanelFocus()
             }
         }, SEARCH_PANEL_FOCUS_DELAY_MS)
+    }
+
+    // 结果面板顶部搜索框选中（点击/OK）：收面板回编辑态，原词已带在输入框，焦点即弹系统输入法
+    private fun enterEditFromResult() {
+        showSearchPanel()
+        if (binding.editText.requestFocus()) {
+            binding.editText.setSelection(binding.editText.text?.length ?: 0)
+        }
     }
 
     private fun syncCenterColumn() {
@@ -724,7 +770,9 @@ class SearchNewFragment :
         binding.tabSearchResult.enableTouchNavigation(
             binding.viewPagerResult,
             tabFocusable = true,
-            onNavigateDown = { focusCurrentResultContent() }
+            onNavigateDown = { focusCurrentResultContent() },
+            // tab 上方是结果搜索框；不传会走框架默认，焦点越层逃去主页侧栏
+            onNavigateUp = { focusResultHeader() }
         )
         viewModel.searchPageStates.value.forEach { (type, state) ->
             adapter.submitState(type, state.items, state.loading, state.hasMore)
@@ -869,6 +917,9 @@ class SearchNewFragment :
             binding.buttonResultBack.takeIf { it.isVisible && it.isFocusable }?.let {
                 add(it)
             }
+            binding.layoutResultSearchBox.takeIf { it.isVisible && it.isFocusable }?.let {
+                add(it)
+            }
             addAll(resultTabViews())
             if (includeOrderButton && binding.buttonOrder.isVisible && binding.buttonOrder.isFocusable) {
                 add(binding.buttonOrder)
@@ -888,6 +939,9 @@ class SearchNewFragment :
 
     private fun focusResultPrimaryActions(anchorView: View? = view?.findFocus()): Boolean {
         val candidates = buildList {
+            binding.layoutResultSearchBox.takeIf { it.isVisible && it.isFocusable }?.let {
+                add(it)
+            }
             addAll(resultTabViews())
             if (binding.buttonOrder.isVisible && binding.buttonOrder.isFocusable) {
                 add(binding.buttonOrder)

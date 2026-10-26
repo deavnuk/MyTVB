@@ -25,6 +25,7 @@ fun TabLayout.enableTouchNavigation(
     tabFocusable: Boolean = true,
     smoothScrollOnSelection: Boolean = true,
     onNavigateDown: (() -> Boolean)? = null,
+    onNavigateUp: (() -> Boolean)? = null,
     onNavigateLeft: (() -> Boolean)? = null,
     onNavigateRight: (() -> Boolean)? = null,
     onTabReselected: ((index: Int) -> Unit)? = null
@@ -55,6 +56,17 @@ fun TabLayout.enableTouchNavigation(
                                 }
                                 keepSelectedTabFocused(tabStrip, index, viewPager)
                                 true
+                            }
+                            KeyEvent.KEYCODE_DPAD_UP -> {
+                                // 无回调时返回 false 走框架默认（历史行为）；
+                                // 复杂布局下默认导航会越层乱飞，调用方应显式传入落点
+                                val result = if (onNavigateUp != null) {
+                                    onNavigateUp.invoke()
+                                } else {
+                                    false
+                                }
+                                AppLog.d("TabNav", "DPAD_UP tab[$index] result=$result")
+                                result
                             }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
                                 val result = if (onNavigateDown != null) {

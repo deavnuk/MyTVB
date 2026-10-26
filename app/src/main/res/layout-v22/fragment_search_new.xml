@@ -109,6 +109,8 @@
             android:layout_marginStart="@dimen/px10"
             android:layout_marginEnd="@dimen/px30"
             android:background="@drawable/bg_search_input"
+            android:clickable="true"
+            android:focusable="true"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="@dimen/px26"

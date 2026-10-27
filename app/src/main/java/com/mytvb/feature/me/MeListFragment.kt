@@ -342,6 +342,12 @@ class MeListFragment : BaseFragment<FragmentMeTabListBinding>(), MeTabPage, com.
                     if (!loading) {
                         swipeRefreshLayout?.isRefreshing = false
                         settlePendingRefreshAfterNoop()
+                        // onTabSelected 重拉前置位 FOCUS_BLOCK_DESCENDANTS 防焦点抢入
+                        // 半空列表，但恢复只挂在部分渲染分支上：TTL 过期重拉走 setData
+                        // 增量分支、错误空态、签名去重跳过等路径都不恢复，列表会永久
+                        // 屏蔽焦点（tab 上按 DOWN 无反应）。BLOCK 的生命周期收敛为
+                        // 加载窗口，此处所有路径必经，统一解锁。
+                        binding.recyclerView.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
                     }
                     val hasData = hasContentItems()
                     binding.progressBar.visibility = if (loading && !hasData) View.VISIBLE else View.GONE

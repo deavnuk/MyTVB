@@ -221,6 +221,8 @@ class SearchNewFragment :
             }
         }
         binding.editText.setOnClickListener { showSystemInputMethod() }
+        // 触屏点输入框以外收输入法由 MainActivity.dispatchTouchEvent 统一处理
+        // （OnTouchListener 只能收到落到空白的触摸，点 RecyclerView 条目/按钮收不到）
 
         binding.editText.setOnKeyListener { view, keyCode, event ->
             if (event.action != KeyEvent.ACTION_DOWN) {

@@ -73,6 +73,8 @@ class CctvVodSearchDialog(
                 as? android.view.inputmethod.InputMethodManager
             imm?.showSoftInput(binding.editQuery, 0)
         }
+        // 触屏点输入框以外收系统输入法见 dispatchTouchEvent override
+        // （OnTouchListener 收不到被子控件消费的触摸，如自家 T9 键盘按键/条目点击）
         binding.buttonConfirm.setOnClickListener { dismiss() }
         binding.buttonClear.setOnClickListener {
             binding.editQuery.setText("")
@@ -109,6 +111,44 @@ class CctvVodSearchDialog(
     }
 
     override fun onSearch() = dismiss()
+
+    private fun hideSystemInputMethod() {
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE)
+            as? android.view.inputmethod.InputMethodManager
+        imm?.hideSoftInputFromWindow(binding.editQuery.windowToken, 0)
+    }
+
+    /**
+     * 触屏点输入框以外区域收起系统输入法，且这次点击不派发（与 MainActivity 同款约定：
+     * 键盘弹出时第一次点击专门用于收键盘，不触发任何功能）。Dialog 是独立窗口
+     * 不经过宿主 Activity，必须在这里 override；点输入框本身不收（继续编辑）。
+     * hide 返回 true=键盘正显示且已收起，此时消费事件；false=键盘未显示，正常派发。
+     */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.action == android.view.MotionEvent.ACTION_DOWN &&
+            binding.editQuery.hasFocus() && isImeVisible()
+        ) {
+            val editQuery = binding.editQuery
+            val location = IntArray(2)
+            editQuery.getLocationOnScreen(location)
+            val within = ev.rawX >= location[0] && ev.rawX <= location[0] + editQuery.width &&
+                ev.rawY >= location[1] && ev.rawY <= location[1] + editQuery.height
+            if (!within) {
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE)
+                    as? android.view.inputmethod.InputMethodManager
+                imm?.hideSoftInputFromWindow(editQuery.windowToken, 0)
+                return true
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun isImeVisible(): Boolean {
+        val frame = android.graphics.Rect()
+        window?.decorView?.getWindowVisibleDisplayFrame(frame)
+        val height = context.resources.displayMetrics.heightPixels
+        return height - frame.height() > height * 0.15
+    }
 
     companion object {
         fun show(context: Context, initialQuery: String, onQueryChanged: (String) -> Unit) {

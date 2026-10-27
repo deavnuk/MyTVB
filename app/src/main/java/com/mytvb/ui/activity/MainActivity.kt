@@ -11,6 +11,9 @@ import androidx.annotation.OptIn
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
+import android.view.MotionEvent
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.FragmentTransaction
 import androidx.fragment.app.commit
@@ -68,6 +71,39 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), TabBarView.OnTabClickL
     private data class FocusRestoreAnchor(
         val viewRef: WeakReference<View>
     )
+
+    /**
+     * 触屏点输入框以外区域收起系统输入法，且这次点击不派发（用户约定：
+     * 键盘弹出时第一次点击专门用于收键盘，不触发任何功能——点热搜不搜索、
+     * 点按钮不执行；键盘收着时点击一切照旧）。必须放在 dispatchTouchEvent：
+     * 挂 OnTouchListener 只能收到落到空白的触摸。点输入框本身不收（继续编辑）。
+     * hide 返回 true=键盘正显示且已收起，此时消费事件；false=键盘未显示，正常派发。
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.action == MotionEvent.ACTION_DOWN) {
+            val focused = currentFocus
+            if (focused is EditText && isImeVisible()) {
+                val location = IntArray(2)
+                focused.getLocationOnScreen(location)
+                val within = ev.rawX >= location[0] && ev.rawX <= location[0] + focused.width &&
+                    ev.rawY >= location[1] && ev.rawY <= location[1] + focused.height
+                if (!within) {
+                    val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+                    imm?.hideSoftInputFromWindow(focused.windowToken, 0)
+                    // hideSoftInputFromWindow 在键盘未显示时也返回 true，不能当显示依据
+                    return true
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun isImeVisible(): Boolean {
+        val frame = android.graphics.Rect()
+        window.decorView.getWindowVisibleDisplayFrame(frame)
+        val height = resources.displayMetrics.heightPixels
+        return height - frame.height() > height * 0.15
+    }
 
     companion object {
         private const val SETTINGS_OVERLAY_TAG = "settings"
